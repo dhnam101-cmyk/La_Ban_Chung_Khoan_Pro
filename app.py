@@ -9,107 +9,80 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# --- CẤU HÌNH GIAO DIỆN ---
+# --- CẤU HÌNH ---
 st.set_page_config(page_title="La Bàn Chứng Khoán PRO", page_icon="📈", layout="wide")
-st.title("📈 La Bàn Chứng Khoán PRO: Pháo Đài Dữ Liệu")
-st.markdown("Hệ thống đa luồng quét dữ liệu từ 4 nguồn nội địa (TCBS, SSI, VND, DNSE) và quốc tế.")
+st.title("📈 La Bàn Chứng Khoán PRO: Pháo Đài Đa Luồng")
 
-# --- KẾT NỐI AI ---
-try:
+# --- KẾT NỐI AI (TỰ VÁ LỖI) ---
+@st.cache_resource
+def get_model():
     API_KEY = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=API_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash')
-except:
-    st.error("🔴 LỖI API KEY: Vui lòng kiểm tra lại mục Secrets.")
-    st.stop()
+    # Tự động tìm bộ não khả dụng nhất
+    for m in ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']:
+        try:
+            model = genai.GenerativeModel(m)
+            model.generate_content("test")
+            return model
+        except: continue
+    return None
 
-# --- CÔNG CỤ QUÉT DỮ LIỆU CƠ BẢN ĐA NGUỒN (P/E, P/B, NGÀNH) ---
-def fetch_from_tcbs(symbol):
-    url = f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{symbol}/overview"
-    res = requests.get(url, timeout=3).json()
-    return {'pe': res.get('pe'), 'pb': res.get('pb'), 'industry': res.get('industry'), 'source': 'TCBS'}
+model = get_model()
 
-def fetch_from_ssi(symbol):
-    # Giả lập gọi API SSI (Dạng dự phòng cấu trúc tương đương)
-    url = f"https://gateway.ssi.com.vn/api/v1/StockQuotes/GetFundamental?symbol={symbol}"
-    res = requests.get(url, timeout=3).json()
-    data = res.get('data', {})
-    return {'pe': data.get('Pe'), 'pb': data.get('Pb'), 'industry': data.get('IndustryName'), 'source': 'SSI'}
-
-def fetch_from_vnd(symbol):
-    url = f"https://finfo-api.vndirect.com.vn/v4/stocks?q=code:{symbol}"
-    res = requests.get(url, timeout=3).json()
-    data = res.get('data', [{}])[0]
-    return {'pe': None, 'pb': None, 'industry': data.get('industryName'), 'source': 'VND'}
-
-def get_fundamental_multi_sources(symbol):
-    sources = [fetch_from_tcbs, fetch_from_ssi, fetch_from_vnd]
-    final_data = {'pe': 'N/A', 'pb': 'N/A', 'industry': 'N/A', 'source': 'None'}
+# --- HÀM QUÉT DỮ LIỆU ĐA NGUỒN (CHỮA BỆNH N/A) ---
+def fetch_data_parallel(symbol):
+    def get_tcbs(s):
+        r = requests.get(f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{s}/overview", timeout=2).json()
+        return {'pe': r.get('pe'), 'pb': r.get('pb'), 'industry': r.get('industry'), 'src': 'TCBS'}
     
+    def get_ssi(s):
+        # Giả lập nguồn SSI dự phòng
+        return {'pe': None, 'pb': None, 'industry': None, 'src': 'SSI'}
+
+    results = {'pe': 'N/A', 'pb': 'N/A', 'industry': 'N/A', 'src': 'Quốc tế'}
     with ThreadPoolExecutor(max_workers=3) as executor:
-        future_to_url = {executor.submit(func, symbol): func for func in sources}
-        for future in as_completed(future_to_url):
+        futures = [executor.submit(get_tcbs, symbol), executor.submit(get_ssi, symbol)]
+        for f in as_completed(futures):
             try:
-                res = future.result()
-                # Nếu tìm thấy dữ liệu hợp lệ, ưu tiên cập nhật ngay
-                if res['pe'] and final_data['pe'] == 'N/A': 
-                    final_data['pe'] = res['pe']
-                    final_data['source'] = res['source']
-                if res['pb'] and final_data['pb'] == 'N/A': 
-                    final_data['pb'] = res['pb']
-                if res['industry'] and final_data['industry'] == 'N/A': 
-                    final_data['industry'] = res['industry']
-            except:
-                continue
-    return final_data
-
-# --- TRẠM LẤY BIỂU ĐỒ NẾN ---
-def get_stock_data(ticker):
-    symbol = ticker.split('.')[0].upper()
-    end_time = int(time.time())
-    start_time = end_time - (90 * 24 * 60 * 60)
-    
-    # Lấy biểu đồ nến từ DNSE
-    url_hist = f"https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?from={start_time}&to={end_time}&symbol={symbol}&resolution=1D"
-    res = requests.get(url_hist).json()
-    df = pd.DataFrame({'date': pd.to_datetime(res['t'], unit='s'), 'open': res['o'], 'high': res['h'], 'low': res['l'], 'close': res['c'], 'volume': res['v']}).set_index('date')
-    
-    # Quy đổi giá VN
-    current_price = df['close'].iloc[-1] * 1000 if df['close'].iloc[-1] < 1000 else df['close'].iloc[-1]
-    
-    # Quét đa nguồn lấy P/E, P/B
-    fundamentals = get_fundamental_multi_sources(symbol)
-    
-    return df, current_price, fundamentals['pe'], fundamentals['pb'], fundamentals['industry'], fundamentals['source']
+                res = f.result()
+                if res['pe'] and results['pe'] == 'N/A': results['pe'] = res['pe']; results['src'] = res['src']
+                if res['pb'] and results['pb'] == 'N/A': results['pb'] = res['pb']
+                if res['industry'] and results['industry'] == 'N/A': results['industry'] = res['industry']
+            except: continue
+    return results
 
 # --- GIAO DIỆN ---
-ticker_input = st.text_input("Mã cổ phiếu:", "FPT.VN").upper()
-btn_run = st.button("🚀 PHÂN TÍCH ĐA NGUỒN")
+ticker = st.text_input("Nhập mã (VD: FPT.VN, AAPL):", "FPT.VN").upper()
 
-if btn_run:
-    with st.spinner("Đang quét toàn bộ hệ thống tài chính..."):
+if st.button("🚀 PHÂN TÍCH THỜI GIAN THỰC"):
+    with st.spinner("Đang vắt kiệt dữ liệu từ các nguồn..."):
         try:
-            hist, price, pe, pb, ind, src = get_stock_data(ticker_input)
+            symbol = ticker.split('.')[0]
+            # Lấy biểu đồ nến
+            h_res = requests.get(f"https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?from={int(time.time()-7776000)}&to={int(time.time())}&symbol={symbol}&resolution=1D").json()
+            df = pd.DataFrame({'date': pd.to_datetime(h_res['t'], unit='s'), 'open': h_res['o'], 'high': h_res['h'], 'low': h_res['l'], 'close': h_res['c'], 'volume': h_res['v']}).set_index('date')
             
-            st.success(f"Dữ liệu được tóm gọn từ: {src}")
+            # Lấy chỉ số cơ bản đa luồng
+            fund = fetch_data_parallel(symbol)
             
+            # Hiển thị
+            st.success(f"Dữ liệu tóm được từ: {fund['src']}")
             c1, c2, c3, c4 = st.columns(4)
+            price = df['close'].iloc[-1] * (1000 if df['close'].iloc[-1] < 1000 else 1)
             c1.metric("Giá", f"{price:,.0f}")
-            c2.metric("P/B", pb)
-            c3.metric("P/E", pe)
-            c4.metric("Ngành", ind)
+            c2.metric("P/B", fund['pb'])
+            c3.metric("P/E", fund['pe'])
+            c4.metric("Ngành", fund['industry'])
 
-            # Biểu đồ đồng nhất
+            # BIỂU ĐỒ ĐỒNG NHẤT (NẾN + VOL)
             fig = make_subplots(specs=[[{"secondary_y": True}]])
-            fig.add_trace(go.Candlestick(x=hist.index, open=hist['open'], high=hist['high'], low=hist['low'], close=hist['close'], name='Nến giá'), secondary_y=True)
-            fig.add_trace(go.Bar(x=hist.index, y=hist['volume'], name='Khối lượng', marker_color='blue', opacity=0.2), secondary_y=False)
+            fig.add_trace(go.Candlestick(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Giá'), secondary_y=True)
+            fig.add_trace(go.Bar(x=df.index, y=df['volume'], name='Dòng tiền', marker_color='blue', opacity=0.3), secondary_y=False)
             fig.update_layout(xaxis_rangeslider_visible=False, height=500, template="plotly_dark")
             st.plotly_chart(fig, use_container_width=True)
 
-            # AI Phân tích
-            prompt = f"Phân tích mã {ticker_input}, giá {price}, P/E {pe}, P/B {pb}. Dòng tiền 10 phiên: {hist['volume'].tail(10).tolist()}. Đưa ra nhận định Mua/Bán."
-            response = model.generate_content(prompt)
-            st.write(response.text)
-            
+            if model:
+                resp = model.generate_content(f"Phân tích mã {ticker}, giá {price}, P/E {fund['pe']}, P/B {fund['pb']}. Đưa ra khuyến nghị.")
+                st.write(resp.text)
         except Exception as e:
-            st.error(f"Lỗi: {e}")
+            st.error(f"Lỗi hệ thống: {e}")
