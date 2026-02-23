@@ -8,171 +8,153 @@ import time
 
 # --- CẤU HÌNH GIAO DIỆN ---
 st.set_page_config(page_title="La Bàn Chứng Khoán PRO", page_icon="📈", layout="wide")
-st.title("📈 La Bàn Chứng Khoán PRO: Hệ Thống 3 Lớp")
-st.markdown("Tích hợp dữ liệu Nội địa (VN) và Quốc tế với tính năng Tự phục hồi lỗi.")
+st.title("📈 La Bàn Chứng Khoán PRO: Hệ Thống Bất Tử")
+st.markdown("Phiên bản đã vá lỗi máy chủ TCBS và bọc áo giáp thép chống sập API.")
 
 # --- BẢO MẬT API KEY ---
 API_KEY = st.secrets["GEMINI_API_KEY"]
 genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel('gemini-1.5-pro')
 
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-}
+HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36'}
 
 # ==========================================
-# TRẠM 1: DỮ LIỆU VIỆT NAM (TCBS)
+# TRẠM 1: DỮ LIỆU VIỆT NAM (TCBS) - ĐÃ FIX LỖI 404
 # ==========================================
 def get_source_1_vietnam(ticker):
     symbol = ticker.replace(".VN", "").replace(".HM", "").replace(".HN", "")
-    end_time = int(time.time())
-    start_time = end_time - (90 * 24 * 60 * 60)
+    
+    # BÍ QUYẾT FIX LỖI 404: Nhân 1000 để đổi ra mili-giây cho TCBS hiểu
+    end_time = int(time.time() * 1000)
+    start_time = end_time - (90 * 24 * 60 * 60 * 1000)
     
     url_hist = f"https://apipubaws.tcbs.com.vn/stock-insight/v1/stock/bars-long-term?ticker={symbol}&type=stock&resolution=D&from={start_time}&to={end_time}"
     res = requests.get(url_hist, headers=HEADERS)
     
-    if res.status_code != 200:
-        raise ValueError(f"Lỗi {res.status_code}")
+    if res.status_code != 200: raise ValueError(f"Lỗi {res.status_code}")
         
-    res_hist = res.json()
-    if 'data' not in res_hist or not res_hist['data']:
-        raise ValueError("Dữ liệu rỗng")
+    data = res.json().get('data', [])
+    if not data: raise ValueError("TCBS trả về dữ liệu rỗng")
         
-    df = pd.DataFrame(res_hist['data'])
+    df = pd.DataFrame(data)
     df['date'] = pd.to_datetime(df['tradingDate'])
     df = df.set_index('date')
     current_price = df['close'].iloc[-1]
     
-    # Bọc lỗi riêng cho phần chỉ số cơ bản
     try:
         url_over = f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{symbol}/overview"
         res_over = requests.get(url_over, headers=HEADERS).json()
-        pe_ratio = res_over.get('pe', 'Không có')
-        pb_ratio = res_over.get('pb', 'Không có')
-        industry = res_over.get('industry', 'Không xác định')
+        pe_ratio = res_over.get('pe', 'N/A')
+        pb_ratio = res_over.get('pb', 'N/A')
+        industry = res_over.get('industry', 'N/A')
     except:
-        pe_ratio, pb_ratio, industry = 'Không có', 'Không có', 'Không xác định'
+        pe_ratio, pb_ratio, industry = 'N/A', 'N/A', 'N/A'
     
     return df, current_price, pe_ratio, pb_ratio, industry
 
 # ==========================================
-# TRẠM 2: QUỐC TẾ (YAHOO QUERY)
+# TRẠM 2: QUỐC TẾ (YAHOO QUERY) - ĐÃ BỌC ÁO GIÁP
 # ==========================================
 def get_source_2_yahooquery(ticker):
     stock = YQTicker(ticker)
     hist = stock.history(period="3mo")
-    if isinstance(hist, dict) or hist.empty:
-        raise ValueError("YahooQuery không tìm thấy mã này")
+    if isinstance(hist, dict) or hist.empty: raise ValueError("YQ không tìm thấy")
     
     hist = hist.reset_index().set_index('date')
     current_price = hist['close'].iloc[-1]
     
-    # Sửa lỗi string dictionary
-    detail = stock.summary_detail
-    if isinstance(detail, dict) and isinstance(detail.get(ticker), dict):
-        pe_ratio = detail[ticker].get('trailingPE', 'Không có')
-    else:
-        pe_ratio = 'Không có'
-        
-    stats = stock.default_key_statistics
-    if isinstance(stats, dict) and isinstance(stats.get(ticker), dict):
-        pb_ratio = stats[ticker].get('priceToBook', 'Không có')
-    else:
-        pb_ratio = 'Không có'
-        
-    profile = stock.asset_profile
-    if isinstance(profile, dict) and isinstance(profile.get(ticker), dict):
-        industry = profile[ticker].get('industry', 'Không xác định')
-    else:
-        industry = 'Không xác định'
+    # Bọc Try-Except từng cái một để không bao giờ bị sập
+    try: pe_ratio = stock.summary_detail[ticker].get('trailingPE', 'N/A')
+    except: pe_ratio = 'N/A'
+    
+    try: pb_ratio = stock.key_stats[ticker].get('priceToBook', 'N/A')
+    except: pb_ratio = 'N/A'
+    
+    try: industry = stock.asset_profile[ticker].get('industry', 'N/A')
+    except: industry = 'N/A'
     
     return hist, current_price, pe_ratio, pb_ratio, industry
 
 # ==========================================
-# TRẠM 3: DỰ PHÒNG CỨNG (YFINANCE)
+# TRẠM 3: DỰ PHÒNG YFINANCE
 # ==========================================
 def get_source_3_yfinance(ticker):
-    # CHÍNH THỨC SỬA LỖI YFINANCE: Không ép mặt nạ nữa, để YF tự dùng công nghệ của nó
     stock = yf.Ticker(ticker)
     hist = stock.history(period="3mo")
-    if hist.empty:
-        raise ValueError("YFinance không tìm thấy mã này")
+    if hist.empty: raise ValueError("YF không tìm thấy")
     
     current_price = hist['Close'].iloc[-1]
     hist.columns = [c.lower() for c in hist.columns] 
     
-    info = stock.info
-    pe_ratio = info.get('trailingPE', 'Không có')
-    pb_ratio = info.get('priceToBook', 'Không có')
-    industry = info.get('industry', 'Không xác định')
-    
+    try:
+        pe_ratio = stock.info.get('trailingPE', 'N/A')
+        pb_ratio = stock.info.get('priceToBook', 'N/A')
+        industry = stock.info.get('industry', 'N/A')
+    except:
+        pe_ratio, pb_ratio, industry = 'N/A', 'N/A', 'N/A'
+        
     return hist, current_price, pe_ratio, pb_ratio, industry
 
 # --- GIAO DIỆN CHÍNH ---
-ticker_input = st.text_input("Nhập mã cổ phiếu (VD: FPT.VN, VCB.VN hoặc cổ phiếu Mỹ AAPL, TSLA):", "FPT.VN").upper()
+ticker_input = st.text_input("Nhập mã cổ phiếu (VD: FPT.VN, VCB.VN hoặc AAPL):", "FPT.VN").upper()
 
 if st.button("Kích Hoạt AI & Quét Dữ Liệu 🚀"):
-    with st.spinner(f"Radar đang dò tìm các trạm dữ liệu cho {ticker_input}..."):
-        
+    with st.spinner("Hệ thống radar đang quét các trạm..."):
         data_success = False
-        source_name = ""
         error_logs = []
+        source_name = ""
         
         try:
             hist, current_price, pe_ratio, pb_ratio, industry = get_source_1_vietnam(ticker_input)
-            source_name = "🟢 TRẠM 1: Máy chủ Việt Nam (TCBS)"
+            source_name = "🟢 TRẠM 1: Máy chủ Việt Nam (TCBS) - Cực Nhanh"
             data_success = True
         except Exception as e1:
-            error_logs.append(f"Trạm 1 (VN): {e1}")
+            error_logs.append(f"Trạm 1: {e1}")
             try:
                 hist, current_price, pe_ratio, pb_ratio, industry = get_source_2_yahooquery(ticker_input)
-                source_name = "🟡 TRẠM 2: YahooQuery"
+                source_name = "🟡 TRẠM 2: YahooQuery Quốc tế"
                 data_success = True
             except Exception as e2:
-                error_logs.append(f"Trạm 2 (YQ): {e2}")
+                error_logs.append(f"Trạm 2: {e2}")
                 try:
                     hist, current_price, pe_ratio, pb_ratio, industry = get_source_3_yfinance(ticker_input)
                     source_name = "🟠 TRẠM 3: YFinance Backup"
                     data_success = True
                 except Exception as e3:
-                    error_logs.append(f"Trạm 3 (YF): {e3}")
+                    error_logs.append(f"Trạm 3: {e3}")
                     data_success = False
 
         if not data_success:
-            st.error("🔴 KHÔNG THỂ LẤY DỮ LIỆU. Chi tiết lỗi từ các trạm:")
-            for err in error_logs:
-                st.warning(err)
-            st.info("💡 Bạn nhớ gõ thêm đuôi .VN với cổ phiếu Việt Nam nhé (Ví dụ: FPT.VN, HPG.VN)")
-
+            st.error("🔴 KHÔNG THỂ LẤY DỮ LIỆU. Chi tiết lỗi:")
+            for err in error_logs: st.warning(err)
         else:
             st.success(f"Kết nối thành công: {source_name}")
             
-            st.subheader(f"Tổng quan chỉ số {ticker_input}")
             col1, col2, col3, col4 = st.columns(4)
             col1.metric("Giá hiện tại", f"{current_price:,.0f}" if current_price > 1000 else f"{current_price:,.2f}")
             col2.metric("Chỉ số P/B", f"{pb_ratio}")
             col3.metric("Chỉ số P/E", f"{pe_ratio}")
             col4.metric("Ngành", industry)
             
-            st.markdown("**Biểu đồ Giá (Close)**")
+            st.markdown("**Biểu đồ Giá**")
             st.line_chart(hist['close'])
             st.markdown("**Biểu đồ Dòng tiền (Volume)**")
             st.bar_chart(hist['volume']) 
             
-            with st.spinner("AI đang tính toán chiến lược..."):
+            with st.spinner("Bộ não AI Gemini đang tổng hợp báo cáo..."):
                 prompt = f"""
                 Bạn là Giám đốc phân tích Đầu tư. Phân tích mã {ticker_input} (Ngành: {industry}):
-                - Giá hiện tại: {current_price}, P/B: {pb_ratio}, P/E: {pe_ratio}
-                - Dữ liệu giá/khối lượng: {hist[['close', 'volume']].tail(15).to_string()}
+                - Giá: {current_price}, P/B: {pb_ratio}, P/E: {pe_ratio}
+                - Dữ liệu giá/khối lượng: {hist[['close', 'volume']].tail(10).to_string()}
                 
-                Viết báo cáo gồm 4 phần chuyên nghiệp, súc tích:
-                1. Dòng tiền (Nhận diện Cá mập).
+                Viết báo cáo 4 phần:
+                1. Dòng tiền (Gom hàng/Xả hàng?).
                 2. Kỹ thuật (Xu hướng, Hỗ trợ/Kháng cự).
-                3. Cơ bản (Định giá đắt/rẻ).
+                3. Cơ bản (Định giá đắt hay rẻ?).
                 4. Khuyến nghị (Mua/Bán/Giữ).
                 """
                 try:
                     response = model.generate_content(prompt)
                     st.write(response.text)
                 except Exception as e:
-                    st.error(f"Lỗi kết nối AI: {e}")
+                    st.error("Lỗi AI: Vui lòng kiểm tra lại API Key.")
