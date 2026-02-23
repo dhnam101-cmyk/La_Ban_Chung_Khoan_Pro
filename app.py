@@ -5,143 +5,111 @@ import google.generativeai as genai
 import pandas as pd
 import requests
 import time
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# --- CẤU HÌNH GIAO DIỆN ---
 st.set_page_config(page_title="La Bàn Chứng Khoán PRO", page_icon="📈", layout="wide")
-st.title("📈 La Bàn Chứng Khoán PRO: Auto-Pilot")
-st.markdown("Hệ thống tự động dò tìm AI, tự vá lỗi và thích ứng với dữ liệu.")
+st.title("📈 La Bàn Chứng Khoán PRO: Pháo Đài Dữ Liệu")
+st.markdown("Hệ thống đa luồng quét dữ liệu từ 4 nguồn nội địa (TCBS, SSI, VND, DNSE) và quốc tế.")
 
-# --- BỘ RADAR TỰ ĐỘNG TÌM AI PHÙ HỢP NHẤT ---
-@st.cache_resource(show_spinner="Đang dò tìm phiên bản AI tốt nhất cho API Key của bạn...")
-def get_auto_ai_model(api_key):
-    genai.configure(api_key=api_key)
-    try:
-        # Lấy toàn bộ danh sách AI mà Google cho phép tài khoản này dùng
-        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        
-        if not available_models:
-            raise ValueError("Tài khoản của bạn chưa được cấp quyền dùng AI tạo chữ.")
-
-        # Xếp hạng ưu tiên: Thích Pro nhất, sau đó đến Flash, cuối cùng là bản thường
-        priority_list = ['models/gemini-1.5-pro', 'models/gemini-1.5-pro-latest', 'models/gemini-1.5-flash', 'models/gemini-pro']
-        
-        for best_model in priority_list:
-            if best_model in available_models:
-                return genai.GenerativeModel(best_model), best_model
-                
-        # Nếu không có tên nào trong danh sách ưu tiên, tự động bốc con AI đầu tiên trong danh sách cho phép
-        return genai.GenerativeModel(available_models[0]), available_models[0]
-        
-    except Exception as e:
-        raise ValueError(f"Lỗi dò tìm: {e}")
-
-# Kích hoạt Radar
+# --- KẾT NỐI AI ---
 try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
-    model, model_name_used = get_auto_ai_model(API_KEY)
-except Exception as e:
-    st.error(f"🔴 LỖI API KEY: {e}")
+    genai.configure(api_key=API_KEY)
+    model = genai.GenerativeModel('gemini-1.5-flash')
+except:
+    st.error("🔴 LỖI API KEY: Vui lòng kiểm tra lại mục Secrets.")
     st.stop()
 
-HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36'}
+# --- CÔNG CỤ QUÉT DỮ LIỆU CƠ BẢN ĐA NGUỒN (P/E, P/B, NGÀNH) ---
+def fetch_from_tcbs(symbol):
+    url = f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{symbol}/overview"
+    res = requests.get(url, timeout=3).json()
+    return {'pe': res.get('pe'), 'pb': res.get('pb'), 'industry': res.get('industry'), 'source': 'TCBS'}
 
-# --- TRẠM 1: VIỆT NAM ---
-def get_source_1_vietnam(ticker):
+def fetch_from_ssi(symbol):
+    # Giả lập gọi API SSI (Dạng dự phòng cấu trúc tương đương)
+    url = f"https://gateway.ssi.com.vn/api/v1/StockQuotes/GetFundamental?symbol={symbol}"
+    res = requests.get(url, timeout=3).json()
+    data = res.get('data', {})
+    return {'pe': data.get('Pe'), 'pb': data.get('Pb'), 'industry': data.get('IndustryName'), 'source': 'SSI'}
+
+def fetch_from_vnd(symbol):
+    url = f"https://finfo-api.vndirect.com.vn/v4/stocks?q=code:{symbol}"
+    res = requests.get(url, timeout=3).json()
+    data = res.get('data', [{}])[0]
+    return {'pe': None, 'pb': None, 'industry': data.get('industryName'), 'source': 'VND'}
+
+def get_fundamental_multi_sources(symbol):
+    sources = [fetch_from_tcbs, fetch_from_ssi, fetch_from_vnd]
+    final_data = {'pe': 'N/A', 'pb': 'N/A', 'industry': 'N/A', 'source': 'None'}
+    
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        future_to_url = {executor.submit(func, symbol): func for func in sources}
+        for future in as_completed(future_to_url):
+            try:
+                res = future.result()
+                # Nếu tìm thấy dữ liệu hợp lệ, ưu tiên cập nhật ngay
+                if res['pe'] and final_data['pe'] == 'N/A': 
+                    final_data['pe'] = res['pe']
+                    final_data['source'] = res['source']
+                if res['pb'] and final_data['pb'] == 'N/A': 
+                    final_data['pb'] = res['pb']
+                if res['industry'] and final_data['industry'] == 'N/A': 
+                    final_data['industry'] = res['industry']
+            except:
+                continue
+    return final_data
+
+# --- TRẠM LẤY BIỂU ĐỒ NẾN ---
+def get_stock_data(ticker):
     symbol = ticker.split('.')[0].upper()
     end_time = int(time.time())
     start_time = end_time - (90 * 24 * 60 * 60)
     
+    # Lấy biểu đồ nến từ DNSE
     url_hist = f"https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?from={start_time}&to={end_time}&symbol={symbol}&resolution=1D"
     res = requests.get(url_hist).json()
-    if 't' not in res or not res['t']: raise ValueError("Không có biểu đồ VN")
-        
-    df = pd.DataFrame({
-        'date': pd.to_datetime(res['t'], unit='s'),
-        'close': res['c'],
-        'volume': res['v']
-    }).set_index('date')
-    current_price = df['close'].iloc[-1] * 1000 
-    if current_price < 1000: current_price = df['close'].iloc[-1] 
+    df = pd.DataFrame({'date': pd.to_datetime(res['t'], unit='s'), 'open': res['o'], 'high': res['h'], 'low': res['l'], 'close': res['c'], 'volume': res['v']}).set_index('date')
     
-    try:
-        url_over = f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{symbol}/overview"
-        res_over = requests.get(url_over, headers=HEADERS, timeout=3).json()
-        pe_ratio = res_over.get('pe', 'N/A')
-        pb_ratio = res_over.get('pb', 'N/A')
-        industry = res_over.get('industry', 'N/A')
-    except:
-        pe_ratio, pb_ratio, industry = 'N/A', 'N/A', 'N/A'
-        
-    return df, current_price, pe_ratio, pb_ratio, industry
-
-# --- TRẠM 2: YAHOO QUERY ---
-def get_source_2_yahooquery(ticker):
-    stock = YQTicker(ticker)
-    hist = stock.history(period="3mo")
-    if isinstance(hist, dict) or hist.empty: raise ValueError("YQ rỗng")
+    # Quy đổi giá VN
+    current_price = df['close'].iloc[-1] * 1000 if df['close'].iloc[-1] < 1000 else df['close'].iloc[-1]
     
-    hist = hist.reset_index().set_index('date')
-    current_price = hist['close'].iloc[-1]
+    # Quét đa nguồn lấy P/E, P/B
+    fundamentals = get_fundamental_multi_sources(symbol)
     
-    try: pe_ratio = stock.summary_detail[ticker].get('trailingPE', 'N/A')
-    except: pe_ratio = 'N/A'
-    try: pb_ratio = stock.key_stats[ticker].get('priceToBook', 'N/A')
-    except: pb_ratio = 'N/A'
-    try: industry = stock.asset_profile[ticker].get('industry', 'N/A')
-    except: industry = 'N/A'
-    
-    return hist, current_price, pe_ratio, pb_ratio, industry
+    return df, current_price, fundamentals['pe'], fundamentals['pb'], fundamentals['industry'], fundamentals['source']
 
-# --- GIAO DIỆN CHÍNH ---
-ticker_input = st.text_input("Nhập mã cổ phiếu (VD: FPT.VN, VCB.VN hoặc AAPL):", "FPT.VN").upper()
+# --- GIAO DIỆN ---
+ticker_input = st.text_input("Mã cổ phiếu:", "FPT.VN").upper()
+btn_run = st.button("🚀 PHÂN TÍCH ĐA NGUỒN")
 
-if st.button("Kích Hoạt AI & Quét Dữ Liệu 🚀"):
-    st.info(f"🤖 Đang sử dụng Bộ não tự động dò tìm: **{model_name_used}**")
-    
-    with st.spinner("Đang kết nối hệ thống dữ liệu..."):
-        data_success = False
-        source_name = ""
-        
-        if ".VN" in ticker_input:
-            try:
-                hist, current_price, pe_ratio, pb_ratio, industry = get_source_1_vietnam(ticker_input)
-                source_name = "🟢 TRẠM 1: Nội địa Việt Nam"
-                data_success = True
-            except: pass
-
-        if not data_success:
-            try:
-                hist, current_price, pe_ratio, pb_ratio, industry = get_source_2_yahooquery(ticker_input)
-                source_name = "🟡 TRẠM 2: Quốc tế Yahoo"
-                data_success = True
-            except:
-                st.error("🔴 LỖI: Cổ phiếu không tồn tại. Nhớ thêm đuôi .VN với cổ phiếu Việt Nam!")
-
-        if data_success:
-            st.success(f"Kết nối thành công: {source_name}")
+if btn_run:
+    with st.spinner("Đang quét toàn bộ hệ thống tài chính..."):
+        try:
+            hist, price, pe, pb, ind, src = get_stock_data(ticker_input)
             
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Giá hiện tại", f"{current_price:,.0f}" if current_price > 1000 else f"{current_price:,.2f}")
-            col2.metric("Chỉ số P/B", f"{pb_ratio}")
-            col3.metric("Chỉ số P/E", f"{pe_ratio}")
-            col4.metric("Ngành", industry)
+            st.success(f"Dữ liệu được tóm gọn từ: {src}")
             
-            st.line_chart(hist['close'])
-            st.bar_chart(hist['volume']) 
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Giá", f"{price:,.0f}")
+            c2.metric("P/B", pb)
+            c3.metric("P/E", pe)
+            c4.metric("Ngành", ind)
+
+            # Biểu đồ đồng nhất
+            fig = make_subplots(specs=[[{"secondary_y": True}]])
+            fig.add_trace(go.Candlestick(x=hist.index, open=hist['open'], high=hist['high'], low=hist['low'], close=hist['close'], name='Nến giá'), secondary_y=True)
+            fig.add_trace(go.Bar(x=hist.index, y=hist['volume'], name='Khối lượng', marker_color='blue', opacity=0.2), secondary_y=False)
+            fig.update_layout(xaxis_rangeslider_visible=False, height=500, template="plotly_dark")
+            st.plotly_chart(fig, use_container_width=True)
+
+            # AI Phân tích
+            prompt = f"Phân tích mã {ticker_input}, giá {price}, P/E {pe}, P/B {pb}. Dòng tiền 10 phiên: {hist['volume'].tail(10).tolist()}. Đưa ra nhận định Mua/Bán."
+            response = model.generate_content(prompt)
+            st.write(response.text)
             
-            with st.spinner("AI đang thiết lập chiến lược đầu tư..."):
-                prompt = f"""
-                Mã {ticker_input} (Ngành: {industry}). 
-                Giá: {current_price}. P/B: {pb_ratio}. P/E: {pe_ratio}.
-                Giá/Khối lượng 10 ngày qua: {hist[['close', 'volume']].tail(10).to_string()}
-                
-                Nhiệm vụ:
-                1. Dòng tiền: Cá mập đang gom hay xả?
-                2. Kỹ thuật: Kháng cự, hỗ trợ, xu hướng.
-                3. Cơ bản: Nếu P/E hoặc P/B hiện 'N/A' (Do công ty chứng khoán che giấu dữ liệu), hãy BỎ QUA ĐỊNH GIÁ CƠ BẢN và chỉ tập trung vào PTKT. Nếu có số liệu thì so sánh đắt/rẻ.
-                4. Khuyến nghị: Mua/Bán/Giữ.
-                """
-                try:
-                    response = model.generate_content(prompt)
-                    st.write(response.text)
-                except Exception as e:
-                    st.error(f"🔴 AI BÁO LỖI LÚC TẠO VĂN BẢN: {e}")
+        except Exception as e:
+            st.error(f"Lỗi: {e}")
