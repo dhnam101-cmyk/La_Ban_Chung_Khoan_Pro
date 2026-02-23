@@ -5,4 +5,3 @@ pandas
 requests
 yfinance
 pandas_ta
-beautifulsoup4
