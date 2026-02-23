@@ -6,30 +6,50 @@ import pandas as pd
 import requests
 import time
 
-# --- CẤU HÌNH ---
 st.set_page_config(page_title="La Bàn Chứng Khoán PRO", page_icon="📈", layout="wide")
-st.title("📈 La Bàn Chứng Khoán PRO: AI Phân Tích Toàn Diện")
-st.markdown("Hệ thống Đa Nguồn kết hợp Định giá và Phân tích Kỹ thuật.")
+st.title("📈 La Bàn Chứng Khoán PRO: Auto-Pilot")
+st.markdown("Hệ thống tự động dò tìm AI, tự vá lỗi và thích ứng với dữ liệu.")
 
-# --- KẾT NỐI AI ---
+# --- BỘ RADAR TỰ ĐỘNG TÌM AI PHÙ HỢP NHẤT ---
+@st.cache_resource(show_spinner="Đang dò tìm phiên bản AI tốt nhất cho API Key của bạn...")
+def get_auto_ai_model(api_key):
+    genai.configure(api_key=api_key)
+    try:
+        # Lấy toàn bộ danh sách AI mà Google cho phép tài khoản này dùng
+        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        
+        if not available_models:
+            raise ValueError("Tài khoản của bạn chưa được cấp quyền dùng AI tạo chữ.")
+
+        # Xếp hạng ưu tiên: Thích Pro nhất, sau đó đến Flash, cuối cùng là bản thường
+        priority_list = ['models/gemini-1.5-pro', 'models/gemini-1.5-pro-latest', 'models/gemini-1.5-flash', 'models/gemini-pro']
+        
+        for best_model in priority_list:
+            if best_model in available_models:
+                return genai.GenerativeModel(best_model), best_model
+                
+        # Nếu không có tên nào trong danh sách ưu tiên, tự động bốc con AI đầu tiên trong danh sách cho phép
+        return genai.GenerativeModel(available_models[0]), available_models[0]
+        
+    except Exception as e:
+        raise ValueError(f"Lỗi dò tìm: {e}")
+
+# Kích hoạt Radar
 try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
-    genai.configure(api_key=API_KEY)
-    # Đã cập nhật đúng tên bộ não AI ổn định và thông minh nhất hiện tại của Google
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model, model_name_used = get_auto_ai_model(API_KEY)
 except Exception as e:
-    st.error("Chưa tìm thấy API Key trong mục Secrets của Streamlit!")
+    st.error(f"🔴 LỖI API KEY: {e}")
+    st.stop()
 
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36'}
 
-# --- TRẠM 1: CHUYÊN DỤNG CHO CỔ PHIẾU VIỆT NAM ---
+# --- TRẠM 1: VIỆT NAM ---
 def get_source_1_vietnam(ticker):
-    # Lọc đuôi .VN
     symbol = ticker.split('.')[0].upper()
     end_time = int(time.time())
     start_time = end_time - (90 * 24 * 60 * 60)
     
-    # Lấy biểu đồ từ DNSE (Siêu ổn định)
     url_hist = f"https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?from={start_time}&to={end_time}&symbol={symbol}&resolution=1D"
     res = requests.get(url_hist).json()
     if 't' not in res or not res['t']: raise ValueError("Không có biểu đồ VN")
@@ -39,13 +59,12 @@ def get_source_1_vietnam(ticker):
         'close': res['c'],
         'volume': res['v']
     }).set_index('date')
-    current_price = df['close'].iloc[-1] * 1000 # Đổi về giá thực tế (VD: 94.3 -> 94300)
-    if current_price < 1000: current_price = df['close'].iloc[-1] # Dành cho mã vốn đã chuẩn giá
+    current_price = df['close'].iloc[-1] * 1000 
+    if current_price < 1000: current_price = df['close'].iloc[-1] 
     
-    # Lấy P/E, P/B từ TCBS
     try:
         url_over = f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{symbol}/overview"
-        res_over = requests.get(url_over, headers=HEADERS, timeout=5).json()
+        res_over = requests.get(url_over, headers=HEADERS, timeout=3).json()
         pe_ratio = res_over.get('pe', 'N/A')
         pb_ratio = res_over.get('pb', 'N/A')
         industry = res_over.get('industry', 'N/A')
@@ -54,7 +73,7 @@ def get_source_1_vietnam(ticker):
         
     return df, current_price, pe_ratio, pb_ratio, industry
 
-# --- TRẠM 2: QUỐC TẾ (YAHOO QUERY) ---
+# --- TRẠM 2: YAHOO QUERY ---
 def get_source_2_yahooquery(ticker):
     stock = YQTicker(ticker)
     hist = stock.history(period="3mo")
@@ -73,30 +92,29 @@ def get_source_2_yahooquery(ticker):
     return hist, current_price, pe_ratio, pb_ratio, industry
 
 # --- GIAO DIỆN CHÍNH ---
-ticker_input = st.text_input("Nhập mã cổ phiếu (VD: FPT.VN, VCB.VN hoặc cổ phiếu Mỹ AAPL):", "FPT.VN").upper()
+ticker_input = st.text_input("Nhập mã cổ phiếu (VD: FPT.VN, VCB.VN hoặc AAPL):", "FPT.VN").upper()
 
 if st.button("Kích Hoạt AI & Quét Dữ Liệu 🚀"):
+    st.info(f"🤖 Đang sử dụng Bộ não tự động dò tìm: **{model_name_used}**")
+    
     with st.spinner("Đang kết nối hệ thống dữ liệu..."):
         data_success = False
         source_name = ""
         
-        # Nếu là mã Việt Nam (có chữ .VN) thì ưu tiên vào thẳng Trạm 1
         if ".VN" in ticker_input:
             try:
                 hist, current_price, pe_ratio, pb_ratio, industry = get_source_1_vietnam(ticker_input)
-                source_name = "🟢 TRẠM 1: Máy chủ Nội địa Việt Nam"
+                source_name = "🟢 TRẠM 1: Nội địa Việt Nam"
                 data_success = True
-            except:
-                pass # Bỏ qua để chạy xuống dự phòng
+            except: pass
 
-        # Nếu không phải mã VN, hoặc Trạm 1 lỗi, dùng Yahoo
         if not data_success:
             try:
                 hist, current_price, pe_ratio, pb_ratio, industry = get_source_2_yahooquery(ticker_input)
-                source_name = "🟡 TRẠM 2: Máy chủ Quốc tế Yahoo"
+                source_name = "🟡 TRẠM 2: Quốc tế Yahoo"
                 data_success = True
-            except Exception as e:
-                st.error("🔴 LỖI: Không lấy được dữ liệu. Vui lòng kiểm tra lại mã cổ phiếu (Cổ phiếu VN phải thêm đuôi .VN, VD: FPT.VN)")
+            except:
+                st.error("🔴 LỖI: Cổ phiếu không tồn tại. Nhớ thêm đuôi .VN với cổ phiếu Việt Nam!")
 
         if data_success:
             st.success(f"Kết nối thành công: {source_name}")
@@ -110,21 +128,20 @@ if st.button("Kích Hoạt AI & Quét Dữ Liệu 🚀"):
             st.line_chart(hist['close'])
             st.bar_chart(hist['volume']) 
             
-            with st.spinner("AI đang soạn thảo báo cáo. Vui lòng đợi trong giây lát..."):
+            with st.spinner("AI đang thiết lập chiến lược đầu tư..."):
                 prompt = f"""
-                Bạn là một Giám đốc phân tích Đầu tư Chứng khoán. Hãy phân tích mã {ticker_input} (Ngành: {industry}):
-                - Giá hiện tại: {current_price}, P/B: {pb_ratio}, P/E: {pe_ratio}
-                - Dữ liệu giá/khối lượng 10 ngày qua: {hist[['close', 'volume']].tail(10).to_string()}
+                Mã {ticker_input} (Ngành: {industry}). 
+                Giá: {current_price}. P/B: {pb_ratio}. P/E: {pe_ratio}.
+                Giá/Khối lượng 10 ngày qua: {hist[['close', 'volume']].tail(10).to_string()}
                 
-                Hãy viết báo cáo theo 4 phần:
-                1. Dòng tiền: Đang gom hàng hay xả hàng?
-                2. Kỹ thuật: Xu hướng chính, hỗ trợ/kháng cự.
-                3. Định giá: Nếu P/E hoặc P/B là 'N/A', hãy bỏ qua định giá cơ bản và tập trung dự phóng xu hướng. Nếu có số liệu, hãy nhận xét đắt/rẻ.
-                4. Khuyến nghị: Mua/Bán/Giữ kèm lý do ngắn gọn.
+                Nhiệm vụ:
+                1. Dòng tiền: Cá mập đang gom hay xả?
+                2. Kỹ thuật: Kháng cự, hỗ trợ, xu hướng.
+                3. Cơ bản: Nếu P/E hoặc P/B hiện 'N/A' (Do công ty chứng khoán che giấu dữ liệu), hãy BỎ QUA ĐỊNH GIÁ CƠ BẢN và chỉ tập trung vào PTKT. Nếu có số liệu thì so sánh đắt/rẻ.
+                4. Khuyến nghị: Mua/Bán/Giữ.
                 """
                 try:
                     response = model.generate_content(prompt)
                     st.write(response.text)
                 except Exception as e:
-                    st.error(f"🔴 AI BÁO LỖI: {e}")
-                    st.info("Hãy kiểm tra lại API Key xem đã chính xác chưa nhé!")
+                    st.error(f"🔴 AI BÁO LỖI LÚC TẠO VĂN BẢN: {e}")
