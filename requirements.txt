@@ -4,5 +4,6 @@ plotly
 pandas
 requests
 yfinance
+yahooquery
 pandas_ta
 beautifulsoup4
