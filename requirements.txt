@@ -4,3 +4,4 @@ yahooquery
 google-generativeai
 pandas
 requests
+plotly
