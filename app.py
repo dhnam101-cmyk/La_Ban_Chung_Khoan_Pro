@@ -8,40 +8,50 @@ import time
 
 # --- CẤU HÌNH GIAO DIỆN ---
 st.set_page_config(page_title="La Bàn Chứng Khoán PRO", page_icon="📈", layout="wide")
-st.title("📈 La Bàn Chứng Khoán PRO: Hệ Thống 3 Lớp Đa Nguồn")
-st.markdown("Tích hợp dữ liệu Nội địa (VN) và Quốc tế với cơ chế tự động chuyển nguồn thông minh.")
+st.title("📈 La Bàn Chứng Khoán PRO: Hệ Thống 3 Lớp")
+st.markdown("Tích hợp dữ liệu Nội địa (VN) và Quốc tế với tính năng Tàng hình (Anti-Bot).")
 
 # --- BẢO MẬT API KEY ---
 API_KEY = st.secrets["GEMINI_API_KEY"]
 genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel('gemini-1.5-pro')
 
+# --- MẶT NẠ TÀNG HÌNH (FAKE BROWSER HEADERS) ---
+# Đánh lừa máy chủ tưởng đây là người thật đang dùng Google Chrome
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Connection': 'keep-alive',
+}
+
 # ==========================================
-# TRẠM 1: DỮ LIỆU CHỨNG KHOÁN VIỆT NAM (TCBS)
+# TRẠM 1: DỮ LIỆU VIỆT NAM (TCBS)
 # ==========================================
 def get_source_1_vietnam(ticker):
-    # Lọc bỏ đuôi .VN để API Việt Nam hiểu được
     symbol = ticker.replace(".VN", "").replace(".HM", "").replace(".HN", "")
-    
-    # Tính thời gian 3 tháng qua
     end_time = int(time.time())
     start_time = end_time - (90 * 24 * 60 * 60)
     
-    # Lấy lịch sử giá và Volume
+    # Lấy lịch sử giá
     url_hist = f"https://apipubaws.tcbs.com.vn/stock-insight/v1/stock/bars-long-term?ticker={symbol}&type=stock&resolution=D&from={start_time}&to={end_time}"
-    res_hist = requests.get(url_hist).json()
+    res = requests.get(url_hist, headers=HEADERS)
+    
+    if res.status_code != 200:
+        raise ValueError(f"Máy chủ TCBS chặn kết nối (Lỗi {res.status_code})")
+        
+    res_hist = res.json()
     if 'data' not in res_hist or not res_hist['data']:
-        raise ValueError("Không có dữ liệu lịch sử")
+        raise ValueError("TCBS trả về dữ liệu trống")
         
     df = pd.DataFrame(res_hist['data'])
     df['date'] = pd.to_datetime(df['tradingDate'])
     df = df.set_index('date')
-    
     current_price = df['close'].iloc[-1]
     
-    # Lấy chỉ số cơ bản (P/E, P/B, Ngành)
+    # Lấy chỉ số cơ bản
     url_over = f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{symbol}/overview"
-    res_over = requests.get(url_over).json()
+    res_over = requests.get(url_over, headers=HEADERS).json()
     
     pe_ratio = res_over.get('pe', 'Không có')
     pb_ratio = res_over.get('pb', 'Không có')
@@ -50,13 +60,13 @@ def get_source_1_vietnam(ticker):
     return df, current_price, pe_ratio, pb_ratio, industry
 
 # ==========================================
-# TRẠM 2: DỮ LIỆU QUỐC TẾ (YAHOO QUERY)
+# TRẠM 2: QUỐC TẾ (YAHOO QUERY)
 # ==========================================
 def get_source_2_yahooquery(ticker):
     stock = YQTicker(ticker)
     hist = stock.history(period="3mo")
     if isinstance(hist, dict) or hist.empty:
-        raise ValueError("Không có dữ liệu")
+        raise ValueError("YahooQuery không tìm thấy mã này")
     
     hist = hist.reset_index().set_index('date')
     current_price = hist['close'].iloc[-1]
@@ -68,18 +78,18 @@ def get_source_2_yahooquery(ticker):
     return hist, current_price, pe_ratio, pb_ratio, industry
 
 # ==========================================
-# TRẠM 3: DỰ PHÒNG CUỐI CÙNG (YFINANCE)
+# TRẠM 3: DỰ PHÒNG CỨNG (YFINANCE)
 # ==========================================
 def get_source_3_yfinance(ticker):
     session = requests.Session()
-    session.headers['User-agent'] = 'Mozilla/5.0 (Windows NT 10.0)'
+    session.headers.update(HEADERS)
     stock = yf.Ticker(ticker, session=session)
     hist = stock.history(period="3mo")
     if hist.empty:
-        raise ValueError("Không có dữ liệu")
+        raise ValueError("YFinance không tìm thấy mã này")
     
     current_price = hist['Close'].iloc[-1]
-    hist.columns = [c.lower() for c in hist.columns] # Đồng bộ tên cột
+    hist.columns = [c.lower() for c in hist.columns] 
     
     info = stock.info
     pe_ratio = info.get('trailingPE', 'Không có')
@@ -88,37 +98,46 @@ def get_source_3_yfinance(ticker):
     
     return hist, current_price, pe_ratio, pb_ratio, industry
 
-
 # --- GIAO DIỆN CHÍNH ---
-ticker_input = st.text_input("Nhập mã cổ phiếu (VD: FPT.VN, VCB.VN, HPG.VN hoặc cổ phiếu Mỹ AAPL, TSLA):", "FPT.VN").upper()
+ticker_input = st.text_input("Nhập mã cổ phiếu (VD: FPT.VN, VCB.VN hoặc cổ phiếu Mỹ AAPL, TSLA):", "FPT.VN").upper()
 
 if st.button("Kích Hoạt AI & Quét Dữ Liệu 🚀"):
-    with st.spinner(f"Hệ thống radar đang dò tìm các trạm dữ liệu cho {ticker_input}..."):
+    with st.spinner(f"Đang sử dụng Mặt nạ tàng hình để lấy dữ liệu cho {ticker_input}..."):
         
         data_success = False
         source_name = ""
+        error_logs = [] # Bộ nhớ lưu lại nguyên nhân lỗi để báo cáo
         
-        # --- THUẬT TOÁN CHUYỂN NGUỒN TỰ ĐỘNG (FALLBACK) ---
+        # Thử Trạm 1
         try:
             hist, current_price, pe_ratio, pb_ratio, industry = get_source_1_vietnam(ticker_input)
-            source_name = "🟢 TRẠM 1: Máy chủ Việt Nam (TCBS) - Siêu Tốc"
+            source_name = "🟢 TRẠM 1: Máy chủ Việt Nam (TCBS)"
             data_success = True
-        except:
+        except Exception as e1:
+            error_logs.append(f"Trạm 1 (VN): {e1}")
+            # Thử Trạm 2
             try:
                 hist, current_price, pe_ratio, pb_ratio, industry = get_source_2_yahooquery(ticker_input)
-                source_name = "🟡 TRẠM 2: Máy chủ Quốc tế (YahooQuery)"
+                source_name = "🟡 TRẠM 2: YahooQuery"
                 data_success = True
-            except:
+            except Exception as e2:
+                error_logs.append(f"Trạm 2 (YQ): {e2}")
+                # Thử Trạm 3
                 try:
                     hist, current_price, pe_ratio, pb_ratio, industry = get_source_3_yfinance(ticker_input)
-                    source_name = "🟠 TRẠM 3: Máy chủ Dự phòng (YFinance Backup)"
+                    source_name = "🟠 TRẠM 3: YFinance Backup"
                     data_success = True
-                except:
-                    st.error("🔴 Cả 3 trạm dữ liệu đều báo lỗi hoặc mã cổ phiếu không tồn tại!")
+                except Exception as e3:
+                    error_logs.append(f"Trạm 3 (YF): {e3}")
                     data_success = False
 
-        # --- NẾU LẤY DỮ LIỆU THÀNH CÔNG -> HIỂN THỊ VÀ GỌI AI ---
-        if data_success:
+        if not data_success:
+            st.error("🔴 KHÔNG THỂ LẤY DỮ LIỆU. Chi tiết lỗi từ các trạm:")
+            for err in error_logs:
+                st.warning(err)
+            st.info("💡 Lời khuyên: Đợi 1-2 phút rồi bấm lại, hoặc đảm bảo bạn gõ đúng tên mã (Ví dụ mã VN phải có đuôi .VN như FPT.VN)")
+
+        else:
             st.success(f"Radar kết nối thành công: {source_name}")
             
             st.subheader(f"Tổng quan chỉ số {ticker_input}")
@@ -149,4 +168,4 @@ if st.button("Kích Hoạt AI & Quét Dữ Liệu 🚀"):
                     response = model.generate_content(prompt)
                     st.write(response.text)
                 except Exception as e:
-                    st.error(f"Lỗi kết nối bộ não AI Gemini: {e}")
+                    st.error(f"Lỗi kết nối AI: {e}")
