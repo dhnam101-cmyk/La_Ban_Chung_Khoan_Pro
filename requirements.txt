@@ -1,4 +1,6 @@
 streamlit
 yfinance
+yahooquery
 google-generativeai
 pandas
+requests
