@@ -9,60 +9,52 @@ import time
 # --- CẤU HÌNH ---
 st.set_page_config(page_title="La Bàn Chứng Khoán PRO", page_icon="📈", layout="wide")
 st.title("📈 La Bàn Chứng Khoán PRO: AI Phân Tích Toàn Diện")
-st.markdown("Hệ thống Đa Nguồn kết hợp Tự động cập nhật Bộ não AI.")
+st.markdown("Hệ thống Đa Nguồn kết hợp Định giá và Phân tích Kỹ thuật.")
 
-# --- KẾT NỐI AI (TỰ ĐỘNG DÒ TÌM MODEL MỚI NHẤT) ---
-@st.cache_resource(show_spinner="Đang khởi động radar quét hệ thống AI của Google...")
-def get_best_ai_model(api_key):
-    genai.configure(api_key=api_key)
-    # Tự động xin danh sách các bộ não hiện có từ Google
-    try:
-        for m in genai.list_models():
-            # Tìm bộ não thuộc dòng 1.5-pro và có hỗ trợ tạo nội dung
-            if 'generateContent' in m.supported_generation_methods and 'gemini-1.5-pro' in m.name:
-                return genai.GenerativeModel(m.name)
-    except Exception as e:
-        pass
-    # Trở về phương án dự phòng an toàn nhất nếu lỗi quét
-    return genai.GenerativeModel('gemini-1.5-pro-latest')
-
+# --- KẾT NỐI AI ---
 try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
-    model = get_best_ai_model(API_KEY)
+    genai.configure(api_key=API_KEY)
+    # Đã cập nhật đúng tên bộ não AI ổn định và thông minh nhất hiện tại của Google
+    model = genai.GenerativeModel('gemini-1.5-flash')
 except Exception as e:
-    st.error("🔴 Chưa tìm thấy API Key hoặc API Key bị sai. Vui lòng dán lại vào mục Secrets!")
+    st.error("Chưa tìm thấy API Key trong mục Secrets của Streamlit!")
 
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36'}
 
-# --- TRẠM 1: VIỆT NAM ---
+# --- TRẠM 1: CHUYÊN DỤNG CHO CỔ PHIẾU VIỆT NAM ---
 def get_source_1_vietnam(ticker):
-    symbol = ticker.replace(".VN", "").replace(".HM", "").replace(".HN", "")
-    end_time = int(time.time() * 1000)
-    start_time = end_time - (90 * 24 * 60 * 60 * 1000)
+    # Lọc đuôi .VN
+    symbol = ticker.split('.')[0].upper()
+    end_time = int(time.time())
+    start_time = end_time - (90 * 24 * 60 * 60)
     
-    url_hist = f"https://apipubaws.tcbs.com.vn/stock-insight/v1/stock/bars-long-term?ticker={symbol}&type=stock&resolution=D&from={start_time}&to={end_time}"
-    res = requests.get(url_hist, headers=HEADERS)
-    if res.status_code != 200: raise ValueError("Lỗi API VN")
+    # Lấy biểu đồ từ DNSE (Siêu ổn định)
+    url_hist = f"https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?from={start_time}&to={end_time}&symbol={symbol}&resolution=1D"
+    res = requests.get(url_hist).json()
+    if 't' not in res or not res['t']: raise ValueError("Không có biểu đồ VN")
         
-    data = res.json().get('data', [])
-    if not data: raise ValueError("Dữ liệu rỗng")
-        
-    df = pd.DataFrame(data)
-    df['date'] = pd.to_datetime(df['tradingDate'])
-    df = df.set_index('date')
-    current_price = df['close'].iloc[-1]
+    df = pd.DataFrame({
+        'date': pd.to_datetime(res['t'], unit='s'),
+        'close': res['c'],
+        'volume': res['v']
+    }).set_index('date')
+    current_price = df['close'].iloc[-1] * 1000 # Đổi về giá thực tế (VD: 94.3 -> 94300)
+    if current_price < 1000: current_price = df['close'].iloc[-1] # Dành cho mã vốn đã chuẩn giá
     
+    # Lấy P/E, P/B từ TCBS
     try:
         url_over = f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{symbol}/overview"
-        res_over = requests.get(url_over, headers=HEADERS).json()
+        res_over = requests.get(url_over, headers=HEADERS, timeout=5).json()
         pe_ratio = res_over.get('pe', 'N/A')
         pb_ratio = res_over.get('pb', 'N/A')
         industry = res_over.get('industry', 'N/A')
     except:
         pe_ratio, pb_ratio, industry = 'N/A', 'N/A', 'N/A'
+        
     return df, current_price, pe_ratio, pb_ratio, industry
 
-# --- TRẠM 2: YAHOO QUERY ---
+# --- TRẠM 2: QUỐC TẾ (YAHOO QUERY) ---
 def get_source_2_yahooquery(ticker):
     stock = YQTicker(ticker)
     hist = stock.history(period="3mo")
@@ -80,46 +72,31 @@ def get_source_2_yahooquery(ticker):
     
     return hist, current_price, pe_ratio, pb_ratio, industry
 
-# --- TRẠM 3: YFINANCE ---
-def get_source_3_yfinance(ticker):
-    stock = yf.Ticker(ticker)
-    hist = stock.history(period="3mo")
-    if hist.empty: raise ValueError("YF rỗng")
-    
-    current_price = hist['Close'].iloc[-1]
-    hist.columns = [c.lower() for c in hist.columns] 
-    try:
-        pe_ratio = stock.info.get('trailingPE', 'N/A')
-        pb_ratio = stock.info.get('priceToBook', 'N/A')
-        industry = stock.info.get('industry', 'N/A')
-    except:
-        pe_ratio, pb_ratio, industry = 'N/A', 'N/A', 'N/A'
-    return hist, current_price, pe_ratio, pb_ratio, industry
-
 # --- GIAO DIỆN CHÍNH ---
-ticker_input = st.text_input("Nhập mã cổ phiếu (VD: FPT.VN, VCB.VN hoặc AAPL):", "FPT.VN").upper()
+ticker_input = st.text_input("Nhập mã cổ phiếu (VD: FPT.VN, VCB.VN hoặc cổ phiếu Mỹ AAPL):", "FPT.VN").upper()
 
 if st.button("Kích Hoạt AI & Quét Dữ Liệu 🚀"):
-    with st.spinner("Hệ thống radar đang quét..."):
+    with st.spinner("Đang kết nối hệ thống dữ liệu..."):
         data_success = False
         source_name = ""
         
-        try:
-            hist, current_price, pe_ratio, pb_ratio, industry = get_source_1_vietnam(ticker_input)
-            source_name = "🟢 TRẠM 1: Việt Nam (TCBS)"
-            data_success = True
-        except:
+        # Nếu là mã Việt Nam (có chữ .VN) thì ưu tiên vào thẳng Trạm 1
+        if ".VN" in ticker_input:
             try:
-                hist, current_price, pe_ratio, pb_ratio, industry = get_source_2_yahooquery(ticker_input)
-                source_name = "🟡 TRẠM 2: YahooQuery"
+                hist, current_price, pe_ratio, pb_ratio, industry = get_source_1_vietnam(ticker_input)
+                source_name = "🟢 TRẠM 1: Máy chủ Nội địa Việt Nam"
                 data_success = True
             except:
-                try:
-                    hist, current_price, pe_ratio, pb_ratio, industry = get_source_3_yfinance(ticker_input)
-                    source_name = "🟠 TRẠM 3: YFinance"
-                    data_success = True
-                except:
-                    st.error("🔴 KHÔNG THỂ LẤY DỮ LIỆU. Bạn nhớ thêm đuôi .VN (VD: FPT.VN)")
+                pass # Bỏ qua để chạy xuống dự phòng
+
+        # Nếu không phải mã VN, hoặc Trạm 1 lỗi, dùng Yahoo
+        if not data_success:
+            try:
+                hist, current_price, pe_ratio, pb_ratio, industry = get_source_2_yahooquery(ticker_input)
+                source_name = "🟡 TRẠM 2: Máy chủ Quốc tế Yahoo"
+                data_success = True
+            except Exception as e:
+                st.error("🔴 LỖI: Không lấy được dữ liệu. Vui lòng kiểm tra lại mã cổ phiếu (Cổ phiếu VN phải thêm đuôi .VN, VD: FPT.VN)")
 
         if data_success:
             st.success(f"Kết nối thành công: {source_name}")
@@ -133,20 +110,21 @@ if st.button("Kích Hoạt AI & Quét Dữ Liệu 🚀"):
             st.line_chart(hist['close'])
             st.bar_chart(hist['volume']) 
             
-            with st.spinner("Bộ não AI đang tổng hợp và phân tích..."):
+            with st.spinner("AI đang soạn thảo báo cáo. Vui lòng đợi trong giây lát..."):
                 prompt = f"""
-                Bạn là Giám đốc phân tích Đầu tư. Phân tích mã {ticker_input} (Thuộc ngành: {industry}):
-                - Giá: {current_price}, P/B: {pb_ratio}, P/E: {pe_ratio}
-                - Lịch sử giá/khối lượng: {hist[['close', 'volume']].tail(10).to_string()}
+                Bạn là một Giám đốc phân tích Đầu tư Chứng khoán. Hãy phân tích mã {ticker_input} (Ngành: {industry}):
+                - Giá hiện tại: {current_price}, P/B: {pb_ratio}, P/E: {pe_ratio}
+                - Dữ liệu giá/khối lượng 10 ngày qua: {hist[['close', 'volume']].tail(10).to_string()}
                 
-                Viết báo cáo 4 phần:
-                1. Dòng tiền (Gom hàng hay Xả hàng?).
-                2. Kỹ thuật (Xu hướng, Hỗ trợ/Kháng cự).
-                3. ĐỊNH GIÁ & SO SÁNH NGÀNH: Phân tích P/E và P/B. Cổ phiếu này đang đắt hay rẻ so với mặt bằng chung ngành {industry}?
-                4. Khuyến nghị (Mua/Bán/Giữ).
+                Hãy viết báo cáo theo 4 phần:
+                1. Dòng tiền: Đang gom hàng hay xả hàng?
+                2. Kỹ thuật: Xu hướng chính, hỗ trợ/kháng cự.
+                3. Định giá: Nếu P/E hoặc P/B là 'N/A', hãy bỏ qua định giá cơ bản và tập trung dự phóng xu hướng. Nếu có số liệu, hãy nhận xét đắt/rẻ.
+                4. Khuyến nghị: Mua/Bán/Giữ kèm lý do ngắn gọn.
                 """
                 try:
                     response = model.generate_content(prompt)
                     st.write(response.text)
                 except Exception as e:
-                    st.error(f"🔴 AI TỪ CHỐI KẾT NỐI. Mã lỗi: {e}")
+                    st.error(f"🔴 AI BÁO LỖI: {e}")
+                    st.info("Hãy kiểm tra lại API Key xem đã chính xác chưa nhé!")
