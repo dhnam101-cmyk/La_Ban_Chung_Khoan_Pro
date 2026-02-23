@@ -9,12 +9,12 @@ import pandas_ta as ta
 import yfinance as yf
 
 # --- 1. SETUP HỆ THỐNG ---
-st.set_page_config(page_title="AI Terminal V57: Sovereign Iron Curtain", layout="wide")
+st.set_page_config(page_title="AI Terminal V58: Sovereign Vanguard", layout="wide")
 
 # --- 2. SIDEBAR CONFIG (Yêu cầu 1, 17) ---
 with st.sidebar:
     st.header("⚙️ Configuration")
-    lang = st.selectbox("🌐 Ngôn ngữ / Language", ["Tiếng Việt", "English", "日本語", "한국어", "中文"])
+    lang = st.selectbox("🌐 Language / Ngôn ngữ", ["Tiếng Việt", "English", "日本語", "한국어", "中文"])
     m_config = {
         "Việt Nam": {"suffix": "", "is_intl": False},
         "Mỹ (USA)": {"suffix": "", "is_intl": True},
@@ -24,12 +24,11 @@ with st.sidebar:
     }
     m_target = st.selectbox("🌍 Thị trường / Market:", list(m_config.keys()))
 
-# --- 3. KHÁNG SẬP AI (Yêu cầu 11, 13) ---
+# --- 3. FIX LỖI ResourceExhausted (Yêu cầu 11) ---
 @st.cache_resource
 def get_ai_brain():
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        # Ưu tiên bản Flash để tránh lỗi ResourceExhausted (429) khi lọc mã nặng
         priority = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro']
         models = [m.name for m in genai.list_models()]
         for p in priority:
@@ -37,34 +36,39 @@ def get_ai_brain():
         return None
     except: return None
 
-# --- 4. CƠ CHẾ "BỨC MÀN SẮT" DỮ LIỆU (Yêu cầu 2, 3, 15) ---
-def fetch_sovereign_data(ticker, market_name):
+# --- 4. GIAO THỨC VANGUARD (VƯỢT RÀO CẢN DỮ LIỆU) ---
+def fetch_vanguard_data(ticker, market_name):
     sym = ticker.upper().strip()
     cfg = m_config[market_name]
     df, p, pe, pb, ind, is_vn = None, 0, "N/A", "N/A", "N/A", False
     
+    # Header giả lập người dùng thật để tránh bị chặn
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+
     if not cfg["is_intl"]: # CHẾ ĐỘ VIỆT NAM: KHÓA CHẶT QUỐC TẾ
         is_vn = True
         try:
-            # Snapshot thô từ VNDirect (Vòi chính)
-            r_p = requests.get(f"https://api-price.vndirect.com.vn/stocks/snapshot?symbols={sym}", timeout=5).json()
+            # 1. Snapshot VNDirect (Vòi chính)
+            r_p = requests.get(f"https://api-price.vndirect.com.vn/stocks/snapshot?symbols={sym}", headers=headers, timeout=10).json()
             if r_p: p = r_p[0]['lastPrice'] * 1000
             
-            # Nến & Volume thô từ Entrade (Chống lỗi Data Not Found)
-            r_h = requests.get(f"https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?from={int(time.time())-15552000}&to={int(time.time())}&symbol={sym}&resolution=1D", timeout=5).json()
+            # 2. Nến & Volume Entrade
+            r_h = requests.get(f"https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?from={int(time.time())-15552000}&to={int(time.time())}&symbol={sym}&resolution=1D", headers=headers, timeout=10).json()
             df = pd.DataFrame({'date': pd.to_datetime(r_h['t'], unit='s'), 'open': r_h['o'], 'high': r_h['h'], 'low': r_h['l'], 'close': r_h['c'], 'volume': r_h['v']})
             
-            # Chỉ số tài chính thô từ TCBS
-            r_f = requests.get(f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{sym}/overview", timeout=5).json()
+            # 3. Chỉ số tài chính TCBS
+            r_f = requests.get(f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{sym}/overview", headers=headers, timeout=10).json()
             pe, pb, ind = r_f.get('pe', "N/A"), r_f.get('pb', "N/A"), r_f.get('industry', "N/A")
-        except: pass
-    else: # THẾ GIỚI
+        except Exception as e:
+            print(f"VN Error: {e}")
+    else: # QUỐC TẾ
         target = sym + cfg["suffix"]
         try:
             s = yf.Ticker(target); h = s.history(period="6mo").reset_index()
             if not h.empty:
                 df = h; df.columns = [c.lower() for c in df.columns]; p = df['close'].iloc[-1]
-                pe = s.info.get('trailingPE') or "N/A"; pb = s.info.get('priceToBook') or "N/A"; ind = s.info.get('industry') or "N/A"
+                pe = s.info.get('trailingPE') or "N/A"; pb = s.info.get('priceToBook') or "N/A"
+                ind = s.info.get('industry') or "N/A"
         except: pass
     return df, p, pe, pb, ind, is_vn
 
@@ -75,15 +79,12 @@ if query:
     if len(query.split()) > 1: # CHATBOT CHIẾN LƯỢC (Yêu cầu 13)
         model = get_ai_brain()
         if model:
-            with st.spinner("AI Sovereign is scanning real-time market data..."):
-                try:
-                    # Ép AI cung cấp mã thực tế, không lý thuyết
-                    prompt = f"Act as a financial tycoon. In {m_target}, list 10 tickers for: {query}. GIVE SYMBOLS AND PRICES ONLY. No theory. Language: {lang}."
-                    st.write(model.generate_content(prompt).text)
-                except Exception as e: st.error(f"AI Limit Error: {e}")
+            with st.spinner("AI Sovereign is scanning market for specific stocks..."):
+                prompt = f"Act as a professional financial expert. For the {m_target} market, provide a specific list of 10 stocks for this query: {query}. INCLUDE SYMBOLS AND PRICES. No general theory. Language: {lang}."
+                st.write(model.generate_content(prompt).text)
     else: # PHÂN TÍCH MÃ ĐƠN LẺ
-        with st.spinner(f"Locking target {query}..."):
-            df, p_now, pe, pb, ind, is_vn = fetch_sovereign_data(query, m_target)
+        with st.spinner(f"Synchronizing {query} real-time data..."):
+            df, p_now, pe, pb, ind, is_vn = fetch_vanguard_data(query, m_target)
             if df is not None and not df.empty:
                 for m in [10, 20, 50, 100, 200]: df[f'MA{m}'] = ta.sma(df['close'], m)
                 df['RSI'] = ta.rsi(df['close'], 14)
@@ -107,6 +108,6 @@ if query:
                 model = get_ai_brain()
                 if model:
                     st.subheader(f"🤖 AI Expert Report ({lang})")
-                    st.write(model.generate_content(f"Pro analysis of {query} ({m_target}). Price {p_now}. RSI {df['RSI'].iloc[-1]:.2f}. Sector {ind}. Language: {lang}.").text)
+                    st.write(model.generate_content(f"Pro analysis of {query} ({m_target}). Price {p_now}. Sector {ind}. Language: {lang}.").text)
             else:
-                st.error("Data Not Found. Please check market selection or ticker.")
+                st.error("Data Not Found. Please check market selection or ticker symbol.")
