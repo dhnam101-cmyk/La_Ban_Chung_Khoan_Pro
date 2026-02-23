@@ -9,23 +9,36 @@ import time
 # --- CẤU HÌNH ---
 st.set_page_config(page_title="La Bàn Chứng Khoán PRO", page_icon="📈", layout="wide")
 st.title("📈 La Bàn Chứng Khoán PRO: AI Phân Tích Toàn Diện")
-st.markdown("Hệ thống Đa Nguồn kết hợp Định giá và So sánh Ngành chuyên sâu.")
+st.markdown("Hệ thống Đa Nguồn kết hợp Tự động cập nhật Bộ não AI.")
 
-# --- KẾT NỐI AI ---
+# --- KẾT NỐI AI (TỰ ĐỘNG DÒ TÌM MODEL MỚI NHẤT) ---
+@st.cache_resource(show_spinner="Đang khởi động radar quét hệ thống AI của Google...")
+def get_best_ai_model(api_key):
+    genai.configure(api_key=api_key)
+    # Tự động xin danh sách các bộ não hiện có từ Google
+    try:
+        for m in genai.list_models():
+            # Tìm bộ não thuộc dòng 1.5-pro và có hỗ trợ tạo nội dung
+            if 'generateContent' in m.supported_generation_methods and 'gemini-1.5-pro' in m.name:
+                return genai.GenerativeModel(m.name)
+    except Exception as e:
+        pass
+    # Trở về phương án dự phòng an toàn nhất nếu lỗi quét
+    return genai.GenerativeModel('gemini-1.5-pro-latest')
+
 try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
-    genai.configure(api_key=API_KEY)
-    model = genai.GenerativeModel('gemini-1.5-pro')
+    model = get_best_ai_model(API_KEY)
 except Exception as e:
-    st.error("Chưa tìm thấy API Key trong mục Secrets của Streamlit! Vui lòng kiểm tra lại.")
+    st.error("🔴 Chưa tìm thấy API Key hoặc API Key bị sai. Vui lòng dán lại vào mục Secrets!")
 
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36'}
 
 # --- TRẠM 1: VIỆT NAM ---
 def get_source_1_vietnam(ticker):
     symbol = ticker.replace(".VN", "").replace(".HM", "").replace(".HN", "")
-    end_time = int(time.time())
-    start_time = end_time - (90 * 24 * 60 * 60)
+    end_time = int(time.time() * 1000)
+    start_time = end_time - (90 * 24 * 60 * 60 * 1000)
     
     url_hist = f"https://apipubaws.tcbs.com.vn/stock-insight/v1/stock/bars-long-term?ticker={symbol}&type=stock&resolution=D&from={start_time}&to={end_time}"
     res = requests.get(url_hist, headers=HEADERS)
@@ -120,7 +133,7 @@ if st.button("Kích Hoạt AI & Quét Dữ Liệu 🚀"):
             st.line_chart(hist['close'])
             st.bar_chart(hist['volume']) 
             
-            with st.spinner("Bộ não AI đang tổng hợp và đối chiếu với dữ liệu Ngành..."):
+            with st.spinner("Bộ não AI đang tổng hợp và phân tích..."):
                 prompt = f"""
                 Bạn là Giám đốc phân tích Đầu tư. Phân tích mã {ticker_input} (Thuộc ngành: {industry}):
                 - Giá: {current_price}, P/B: {pb_ratio}, P/E: {pe_ratio}
@@ -129,12 +142,11 @@ if st.button("Kích Hoạt AI & Quét Dữ Liệu 🚀"):
                 Viết báo cáo 4 phần:
                 1. Dòng tiền (Gom hàng hay Xả hàng?).
                 2. Kỹ thuật (Xu hướng, Hỗ trợ/Kháng cự).
-                3. ĐỊNH GIÁ & SO SÁNH NGÀNH: Phân tích P/E và P/B. Dựa vào kiến thức của bạn, hãy so sánh mức định giá này với P/E trung bình của ngành {industry}. Cổ phiếu này đang đắt hay rẻ so với ngành?
+                3. ĐỊNH GIÁ & SO SÁNH NGÀNH: Phân tích P/E và P/B. Cổ phiếu này đang đắt hay rẻ so với mặt bằng chung ngành {industry}?
                 4. Khuyến nghị (Mua/Bán/Giữ).
                 """
                 try:
                     response = model.generate_content(prompt)
                     st.write(response.text)
                 except Exception as e:
-                    st.error(f"🔴 AI TỪ CHỐI KẾT NỐI. Mã lỗi chi tiết: {e}")
-                    st.warning("💡 Nguyên nhân: Có thể API Key của bạn bị sai, thiếu dấu ngoặc kép, hoặc API Key chưa được cấp quyền. Hãy thử tạo 1 API Key mới trên Google AI Studio và dán lại vào mục Secrets nhé!")
+                    st.error(f"🔴 AI TỪ CHỐI KẾT NỐI. Mã lỗi: {e}")
