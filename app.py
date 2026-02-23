@@ -1,88 +1,118 @@
 import streamlit as st
-import yfinance as yf
-from yahooquery import Ticker as YQTicker
 import google.generativeai as genai
 import pandas as pd
 import requests
 import time
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# --- CẤU HÌNH ---
-st.set_page_config(page_title="La Bàn Chứng Khoán PRO", page_icon="📈", layout="wide")
-st.title("📈 La Bàn Chứng Khoán PRO: Pháo Đài Đa Luồng")
+# --- CẤU HÌNH GIAO DIỆN ---
+st.set_page_config(page_title="La Bàn Chứng Khoán PRO", layout="wide")
 
-# --- KẾT NỐI AI (TỰ VÁ LỖI) ---
-@st.cache_resource
-def get_model():
-    API_KEY = st.secrets["GEMINI_API_KEY"]
-    genai.configure(api_key=API_KEY)
-    # Tự động tìm bộ não khả dụng nhất
-    for m in ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']:
-        try:
-            model = genai.GenerativeModel(m)
-            model.generate_content("test")
-            return model
-        except: continue
-    return None
+# --- HỆ THỐNG NGÔN NGỮ ---
+lang = st.sidebar.selectbox("🌐 Ngôn ngữ / Language", ["Tiếng Việt", "English"])
+T = {
+    "Tiếng Việt": {
+        "title": "📈 LA BÀN CHỨNG KHOÁN PRO",
+        "desc": "Hệ thống AI Phân tích Chuyên gia: Dòng tiền - Kỹ thuật - Định giá",
+        "input": "Nhập mã cổ phiếu (VD: FPT.VN, VCB.VN, AAPL):",
+        "btn": "🚀 PHÂN TÍCH CHUYÊN SÂU",
+        "price": "Giá", "pb": "Chỉ số P/B", "pe": "Chỉ số P/E", "ind": "Ngành",
+        "chart_price": "Giá (Nến Nhật)", "chart_vol": "Dòng tiền (Khối lượng)",
+        "ai_loading": "Chuyên gia AI đang đọc dữ liệu...",
+        "error": "🔴 Lỗi hệ thống: Không thể kết nối dữ liệu mã này."
+    },
+    "English": {
+        "title": "📈 STOCK COMPASS PRO",
+        "desc": "Expert AI Analysis: Cash Flow - Technical - Valuation",
+        "input": "Enter Ticker (e.g., AAPL, FPT.VN):",
+        "btn": "🚀 DEEP ANALYSIS",
+        "price": "Price", "pb": "P/B Ratio", "pe": "P/E Ratio", "ind": "Industry",
+        "chart_price": "Price (Candlestick)", "chart_vol": "Money Flow (Volume)",
+        "ai_loading": "AI Expert is reading data...",
+        "error": "🔴 System Error: Data not found for this ticker."
+    }
+}[lang]
 
-model = get_model()
+st.title(T["title"])
+st.markdown(f"*{T['desc']}*")
 
-# --- HÀM QUÉT DỮ LIỆU ĐA NGUỒN (CHỮA BỆNH N/A) ---
-def fetch_data_parallel(symbol):
-    def get_tcbs(s):
-        r = requests.get(f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{s}/overview", timeout=2).json()
-        return {'pe': r.get('pe'), 'pb': r.get('pb'), 'industry': r.get('industry'), 'src': 'TCBS'}
+# --- KẾT NỐI AI ---
+API_KEY = st.secrets["GEMINI_API_KEY"]
+genai.configure(api_key=API_KEY)
+model = genai.GenerativeModel('gemini-1.5-flash')
+
+# --- HÀM LẤY DỮ LIỆU ĐA NGUỒN ---
+def get_pro_data(ticker):
+    symbol = ticker.split('.')[0].upper()
+    # Nguồn 1: DNSE (Biểu đồ)
+    end = int(time.time())
+    start = end - 15552000 # 6 tháng
+    url_h = f"https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?from={start}&to={end}&symbol={symbol}&resolution=1D"
+    res_h = requests.get(url_h).json()
+    df = pd.DataFrame({'date': pd.to_datetime(res_h['t'], unit='s'), 'open': res_h['o'], 'high': res_h['h'], 'low': res_h['l'], 'close': res_h['c'], 'volume': res_h['v']})
     
-    def get_ssi(s):
-        # Giả lập nguồn SSI dự phòng
-        return {'pe': None, 'pb': None, 'industry': None, 'src': 'SSI'}
-
-    results = {'pe': 'N/A', 'pb': 'N/A', 'industry': 'N/A', 'src': 'Quốc tế'}
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = [executor.submit(get_tcbs, symbol), executor.submit(get_ssi, symbol)]
-        for f in as_completed(futures):
-            try:
-                res = f.result()
-                if res['pe'] and results['pe'] == 'N/A': results['pe'] = res['pe']; results['src'] = res['src']
-                if res['pb'] and results['pb'] == 'N/A': results['pb'] = res['pb']
-                if res['industry'] and results['industry'] == 'N/A': results['industry'] = res['industry']
-            except: continue
-    return results
+    # Nguồn 2: TCBS (Cơ bản)
+    pe, pb, ind = "N/A", "N/A", "N/A"
+    try:
+        url_f = f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{symbol}/overview"
+        res_f = requests.get(url_f, timeout=5).json()
+        pe = res_f.get('pe', 'N/A')
+        pb = res_f.get('pb', 'N/A')
+        ind = res_f.get('industry', 'N/A')
+    except: pass
+    
+    return df, pe, pb, ind
 
 # --- GIAO DIỆN ---
-ticker = st.text_input("Nhập mã (VD: FPT.VN, AAPL):", "FPT.VN").upper()
+ticker_input = st.text_input(T["input"], "FPT.VN").upper()
 
-if st.button("🚀 PHÂN TÍCH THỜI GIAN THỰC"):
-    with st.spinner("Đang vắt kiệt dữ liệu từ các nguồn..."):
+if st.button(T["btn"]):
+    with st.spinner(T["ai_loading"]):
         try:
-            symbol = ticker.split('.')[0]
-            # Lấy biểu đồ nến
-            h_res = requests.get(f"https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?from={int(time.time()-7776000)}&to={int(time.time())}&symbol={symbol}&resolution=1D").json()
-            df = pd.DataFrame({'date': pd.to_datetime(h_res['t'], unit='s'), 'open': h_res['o'], 'high': h_res['h'], 'low': h_res['l'], 'close': h_res['c'], 'volume': h_res['v']}).set_index('date')
+            df, pe, pb, ind = get_pro_data(ticker_input)
+            p_now = df['close'].iloc[-1] * (1000 if df['close'].iloc[-1] < 1000 else 1)
             
-            # Lấy chỉ số cơ bản đa luồng
-            fund = fetch_data_parallel(symbol)
-            
-            # Hiển thị
-            st.success(f"Dữ liệu tóm được từ: {fund['src']}")
+            # 1. Dashboard chỉ số
             c1, c2, c3, c4 = st.columns(4)
-            price = df['close'].iloc[-1] * (1000 if df['close'].iloc[-1] < 1000 else 1)
-            c1.metric("Giá", f"{price:,.0f}")
-            c2.metric("P/B", fund['pb'])
-            c3.metric("P/E", fund['pe'])
-            c4.metric("Ngành", fund['industry'])
+            c1.metric(T["price"], f"{p_now:,.0f}")
+            c2.metric(T["pb"], pb)
+            c3.metric(T["pe"], pe)
+            c4.metric(T["ind"], ind)
 
-            # BIỂU ĐỒ ĐỒNG NHẤT (NẾN + VOL)
-            fig = make_subplots(specs=[[{"secondary_y": True}]])
-            fig.add_trace(go.Candlestick(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Giá'), secondary_y=True)
-            fig.add_trace(go.Bar(x=df.index, y=df['volume'], name='Dòng tiền', marker_color='blue', opacity=0.3), secondary_y=False)
-            fig.update_layout(xaxis_rangeslider_visible=False, height=500, template="plotly_dark")
+            # 2. BIỂU ĐỒ CHUYÊN NGHIỆP (TÁCH LỚP)
+            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1, subplot_titles=(T["chart_price"], T["chart_vol"]), row_heights=[0.7, 0.3])
+            
+            # Nến Nhật + Đường MA
+            df['MA20'] = df['close'].rolling(20).mean()
+            fig.add_trace(go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name="Price"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df['date'], y=df['MA20'], line=dict(color='orange', width=1), name="MA20"), row=1, col=1)
+            
+            # Khối lượng
+            colors = ['red' if row['open'] > row['close'] else 'green' for i, row in df.iterrows()]
+            fig.add_trace(go.Bar(x=df['date'], y=df['volume'], marker_color=colors, name="Volume"), row=2, col=1)
+            
+            fig.update_layout(height=700, template="plotly_dark", showlegend=False, xaxis_rangeslider_visible=False)
             st.plotly_chart(fig, use_container_width=True)
 
-            if model:
-                resp = model.generate_content(f"Phân tích mã {ticker}, giá {price}, P/E {fund['pe']}, P/B {fund['pb']}. Đưa ra khuyến nghị.")
-                st.write(resp.text)
+            # 3. AI PHÂN TÍCH CHUYÊN GIA (PRO PROMPT)
+            prompt = f"""
+            System: You are a Tier-1 Hedge Fund Analyst. Language: {lang}.
+            Ticker: {ticker_input}. Industry: {ind}. 
+            Price: {p_now}. P/E: {pe}. P/B: {pb}.
+            Latest 15 days data (OHLCV): {df.tail(15).to_string()}
+            
+            Task: Provide a Professional Report including:
+            1. Smart Money Flow: Identify if 'Big Boys' are accumulating or distributing based on Volume spikes.
+            2. Detailed Technical: Trend, Support/Resistance, and RSI/MA signals.
+            3. Deep Valuation: Compare this P/E and P/B with industry peers. Is it undervalued or a value trap?
+            4. Market Factors: How current market trends affect this specific stock.
+            5. Expert Recommendation: Buy/Sell/Hold with target price.
+            """
+            response = model.generate_content(prompt)
+            st.markdown("---")
+            st.markdown(f"### 🤖 AI EXPERT ANALYSIS ({lang})")
+            st.write(response.text)
+            
         except Exception as e:
-            st.error(f"Lỗi hệ thống: {e}")
+            st.error(f"{T['error']} Details: {e}")
