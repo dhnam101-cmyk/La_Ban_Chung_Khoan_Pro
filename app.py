@@ -9,79 +9,81 @@ import pandas_ta as ta
 import yfinance as yf
 
 # --- 1. SETUP HỆ THỐNG ---
-st.set_page_config(page_title="Global Sovereign V55", layout="wide")
+st.set_page_config(page_title="AI Terminal V57: Sovereign Iron Curtain", layout="wide")
 
-# --- 2. SIDEBAR: ĐA NGÔN NGỮ & THỊ TRƯỜNG (Yêu cầu 1, 17) ---
+# --- 2. SIDEBAR CONFIG (Yêu cầu 1, 17) ---
 with st.sidebar:
     st.header("⚙️ Configuration")
-    lang = st.selectbox("🌐 Language / Ngôn ngữ", ["Tiếng Việt", "English", "日本語", "한국어", "中文"])
-    
-    market_config = {
+    lang = st.selectbox("🌐 Ngôn ngữ / Language", ["Tiếng Việt", "English", "日本語", "한국어", "中文"])
+    m_config = {
         "Việt Nam": {"suffix": "", "is_intl": False},
         "Mỹ (USA)": {"suffix": "", "is_intl": True},
-        "Nhật Bản (Japan)": {"suffix": ".T", "is_intl": True},
-        "Hàn Quốc (Korea)": {"suffix": ".KS", "is_intl": True},
-        "Trung Quốc (China)": {"suffix": ".SS", "is_intl": True},
-        "Anh (UK)": {"suffix": ".L", "is_intl": True},
-        "Đức (Germany)": {"suffix": ".DE", "is_intl": True}
+        "Nhật Bản": {"suffix": ".T", "is_intl": True},
+        "Hàn Quốc": {"suffix": ".KS", "is_intl": True},
+        "Trung Quốc": {"suffix": ".SS", "is_intl": True}
     }
-    m_target = st.selectbox("🌍 Market / Thị trường:", list(market_config.keys()))
+    m_target = st.selectbox("🌍 Thị trường / Market:", list(m_config.keys()))
 
-# --- 3. FIX LỖI AI SẬP (SELF-HEALING) ---
+# --- 3. KHÁNG SẬP AI (Yêu cầu 11, 13) ---
 @st.cache_resource
 def get_ai_brain():
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        for tm in ['models/gemini-1.5-flash', 'models/gemini-1.5-pro']:
-            if tm in models: return genai.GenerativeModel(tm)
-        return genai.GenerativeModel(models[0]) if models else None
+        # Ưu tiên bản Flash để tránh lỗi ResourceExhausted (429) khi lọc mã nặng
+        priority = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro']
+        models = [m.name for m in genai.list_models()]
+        for p in priority:
+            if p in models: return genai.GenerativeModel(p)
+        return None
     except: return None
 
-# --- 4. GIAO THỨC DỮ LIỆU ĐA NỀN TẢNG REAL-TIME (Yêu cầu 2, 3, 15) ---
-def fetch_omnipotent_data(ticker, market_name):
+# --- 4. CƠ CHẾ "BỨC MÀN SẮT" DỮ LIỆU (Yêu cầu 2, 3, 15) ---
+def fetch_sovereign_data(ticker, market_name):
     sym = ticker.upper().strip()
-    cfg = market_config[market_name]
+    cfg = m_config[market_name]
     df, p, pe, pb, ind, is_vn = None, 0, "N/A", "N/A", "N/A", False
     
-    if not cfg["is_intl"]: # CHẾ ĐỘ VIỆT NAM (KHÓA YAHOO TUYỆT ĐỐI ĐỂ FIX GIÁ 142)
+    if not cfg["is_intl"]: # CHẾ ĐỘ VIỆT NAM: KHÓA CHẶT QUỐC TẾ
         is_vn = True
         try:
-            # Snapshot VNDirect (Lấy giá thực, không hard-code)
-            r_p = requests.get(f"https://api-price.vndirect.com.vn/stocks/snapshot?symbols={sym}", timeout=3).json()
+            # Snapshot thô từ VNDirect (Vòi chính)
+            r_p = requests.get(f"https://api-price.vndirect.com.vn/stocks/snapshot?symbols={sym}", timeout=5).json()
             if r_p: p = r_p[0]['lastPrice'] * 1000
-            # Entrade (Nến & Volume tách biệt)
-            r_h = requests.get(f"https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?from={int(time.time())-15552000}&to={int(time.time())}&symbol={sym}&resolution=1D").json()
+            
+            # Nến & Volume thô từ Entrade (Chống lỗi Data Not Found)
+            r_h = requests.get(f"https://services.entrade.com.vn/chart-api/v2/ohlcs/stock?from={int(time.time())-15552000}&to={int(time.time())}&symbol={sym}&resolution=1D", timeout=5).json()
             df = pd.DataFrame({'date': pd.to_datetime(r_h['t'], unit='s'), 'open': r_h['o'], 'high': r_h['h'], 'low': r_h['l'], 'close': r_h['c'], 'volume': r_h['v']})
-            # TCBS (Cơ bản)
-            r_f = requests.get(f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{sym}/overview", timeout=3).json()
+            
+            # Chỉ số tài chính thô từ TCBS
+            r_f = requests.get(f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{sym}/overview", timeout=5).json()
             pe, pb, ind = r_f.get('pe', "N/A"), r_f.get('pb', "N/A"), r_f.get('industry', "N/A")
         except: pass
-    else: # CHẾ ĐỘ QUỐC TẾ
+    else: # THẾ GIỚI
         target = sym + cfg["suffix"]
         try:
             s = yf.Ticker(target); h = s.history(period="6mo").reset_index()
             if not h.empty:
                 df = h; df.columns = [c.lower() for c in df.columns]; p = df['close'].iloc[-1]
-                info = s.info
-                pe = info.get('trailingPE') or "N/A"; pb = info.get('priceToBook') or "N/A"; ind = info.get('industry') or "N/A"
+                pe = s.info.get('trailingPE') or "N/A"; pb = s.info.get('priceToBook') or "N/A"; ind = s.info.get('industry') or "N/A"
         except: pass
     return df, p, pe, pb, ind, is_vn
 
-# --- 5. XỬ LÝ ENTER (Yêu cầu 16) ---
-placeholder = "Mã hoặc Câu hỏi và nhấn ENTER" if lang == "Tiếng Việt" else "Symbol or Question and ENTER"
-query = st.text_input(f"🔍 {placeholder}:", "GEX").upper()
+# --- 5. GIAO DIỆN PHÍM ENTER (Yêu cầu 16) ---
+query = st.text_input(f"🔍 {'Mã hoặc Câu hỏi và ENTER' if lang == 'Tiếng Việt' else 'Symbol or Query and ENTER'}:", "GEX").upper()
 
 if query:
     if len(query.split()) > 1: # CHATBOT CHIẾN LƯỢC (Yêu cầu 13)
         model = get_ai_brain()
         if model:
-            with st.spinner("AI Sovereign is scanning real-time data..."):
-                instr = f"Act as a pro financial expert. Based on real-time data from {m_target}, list 10 specific stocks for: {query}. No theory, list symbols and prices. Reply in {lang}."
-                st.write(model.generate_content(instr).text)
-    else: # PHÂN TÍCH MÃ
-        with st.spinner(f"Syncing {query} data..."):
-            df, p_now, pe, pb, ind, is_vn = fetch_omnipotent_data(query, m_target)
+            with st.spinner("AI Sovereign is scanning real-time market data..."):
+                try:
+                    # Ép AI cung cấp mã thực tế, không lý thuyết
+                    prompt = f"Act as a financial tycoon. In {m_target}, list 10 tickers for: {query}. GIVE SYMBOLS AND PRICES ONLY. No theory. Language: {lang}."
+                    st.write(model.generate_content(prompt).text)
+                except Exception as e: st.error(f"AI Limit Error: {e}")
+    else: # PHÂN TÍCH MÃ ĐƠN LẺ
+        with st.spinner(f"Locking target {query}..."):
+            df, p_now, pe, pb, ind, is_vn = fetch_sovereign_data(query, m_target)
             if df is not None and not df.empty:
                 for m in [10, 20, 50, 100, 200]: df[f'MA{m}'] = ta.sma(df['close'], m)
                 df['RSI'] = ta.rsi(df['close'], 14)
@@ -101,10 +103,10 @@ if query:
                 fig.update_layout(height=650, template="plotly_dark", xaxis_rangeslider_visible=False, showlegend=False)
                 st.plotly_chart(fig, use_container_width=True)
 
-                # AI BÁO CÁO (Yêu cầu 10)
+                # BÁO CÁO AI (Yêu cầu 10)
                 model = get_ai_brain()
                 if model:
                     st.subheader(f"🤖 AI Expert Report ({lang})")
-                    st.write(model.generate_content(f"Pro analysis of {query} ({m_target}). Price {p_now}. RSI {df['RSI'].iloc[-1]:.2f}. Sector {ind}. Detect smart money. Reply in {lang}.").text)
+                    st.write(model.generate_content(f"Pro analysis of {query} ({m_target}). Price {p_now}. RSI {df['RSI'].iloc[-1]:.2f}. Sector {ind}. Language: {lang}.").text)
             else:
-                st.error("Data Not Found / Không tìm thấy dữ liệu.")
+                st.error("Data Not Found. Please check market selection or ticker.")
