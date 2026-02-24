@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
 from data.api_fetcher import get_stock_data
-from components.chart_view import render_tradingview_chart  # <--- Bổ sung thợ vẽ biểu đồ
+from components.chart_view import render_tradingview_chart
+from ai_core.chatbot_engine import get_ai_analysis  # <--- Bổ sung não bộ AI
 
 # ==========================================
 # 1. CẤU HÌNH TRANG WEB (BẮT BUỘC ĐỂ LÊN ĐẦU)
@@ -9,7 +10,7 @@ from components.chart_view import render_tradingview_chart  # <--- Bổ sung th�
 st.set_page_config(
     page_title="La Bàn Chứng Khoán Pro AI",
     page_icon="📈",
-    layout="wide", # Mở rộng toàn màn hình để xem biểu đồ rõ hơn
+    layout="wide", # Mở rộng toàn màn hình
     initial_sidebar_state="expanded"
 )
 
@@ -19,7 +20,7 @@ st.set_page_config(
 if "language" not in st.session_state:
     st.session_state["language"] = "Tiếng Việt"
 if "current_ticker" not in st.session_state:
-    st.session_state["current_ticker"] = "" # Mã cổ phiếu đang tra cứu
+    st.session_state["current_ticker"] = ""
 
 # ==========================================
 # 3. THIẾT KẾ THANH ĐIỀU HƯỚNG BÊN TRÁI (SIDEBAR)
@@ -27,7 +28,6 @@ if "current_ticker" not in st.session_state:
 with st.sidebar:
     st.title("⚙️ Cài đặt Hệ thống")
     
-    # Nút chọn ngôn ngữ lập tức lưu vào Session State
     selected_lang = st.selectbox(
         "🌐 Ngôn ngữ / Language", 
         options=["Tiếng Việt", "English"],
@@ -37,7 +37,6 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # Khu vực chọn sàn giao dịch
     st.subheader("🏦 Chọn thị trường")
     market_choice = st.selectbox(
         "Sàn giao dịch:",
@@ -55,7 +54,6 @@ with st.sidebar:
 st.title("📈 Bảng Điều Khiển: La Bàn Chứng Khoán AI")
 st.write(f"Đang hiển thị ngôn ngữ: **{st.session_state['language']}** | Thị trường: **{market_choice}**")
 
-# Form tra cứu mã cổ phiếu (Sử dụng Enter để kích hoạt)
 with st.form(key="search_form"):
     col1, col2 = st.columns([4, 1])
     
@@ -66,17 +64,16 @@ with st.form(key="search_form"):
         submit_button = st.form_submit_button(label="Tra cứu ngay")
 
 # ==========================================
-# 5. XỬ LÝ LOGIC SAU KHI NHẤN ENTER
+# 5. XỬ LÝ LOGIC SAU KHI NHẤN ENTER (FULL TÍNH NĂNG)
 # ==========================================
 if submit_button and ticker_input != "":
     st.session_state["current_ticker"] = ticker_input
     
     with st.spinner(f"Đang quét dữ liệu đa nguồn cho mã {ticker_input}..."):
         
-        # 1. GỌI DỮ LIỆU TỪ MODULE data/api_fetcher.py
+        # 1. LẤY DỮ LIỆU CƠ BẢN (Đã chống sập)
         stock_info = get_stock_data(ticker_input)
         
-        # 2. HIỂN THỊ DỮ LIỆU CƠ BẢN LÊN GIAO DIỆN
         st.success(f"Dữ liệu được lấy từ: **{stock_info['source']}**")
         
         metric1, metric2, metric3, metric4 = st.columns(4)
@@ -87,17 +84,23 @@ if submit_button and ticker_input != "":
         
         st.markdown("---")
         
-        # 3. CHIA CỘT BIỂU ĐỒ VÀ AI
+        # 2. CHIA CỘT HIỂN THỊ BIỂU ĐỒ VÀ AI
         chart_col, ai_col = st.columns([7, 3])
         
         with chart_col:
             st.subheader("📊 Biểu đồ Kỹ thuật (TradingView)")
-            # Đã thay thế dòng thông báo bằng hàm vẽ biểu đồ thật
             render_tradingview_chart(ticker_input) 
             
         with ai_col:
             st.subheader("🤖 Phân tích AI & Vĩ mô")
-            st.warning("Khu vực này sẽ nhúng module components/ai_chatbot.py ở Giai đoạn 4.")
+            
+            # Khung bọc kết quả AI cho đẹp mắt
+            with st.container(border=True):
+                with st.spinner("AI đang tổng hợp vĩ mô và kỹ thuật..."):
+                    current_lang = st.session_state["language"]
+                    # Gọi hàm AI với cơ chế dự phòng
+                    ai_response = get_ai_analysis(ticker_input, current_lang)
+                    st.markdown(ai_response)
 
 elif submit_button and ticker_input == "":
     st.error("Vui lòng nhập một mã cổ phiếu hợp lệ!")
