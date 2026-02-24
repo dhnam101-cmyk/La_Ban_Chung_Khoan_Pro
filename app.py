@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-# Lưu ý: Các thư viện xử lý sâu sẽ được import ở các file module sau này
+from data.api_fetcher import get_stock_data  # <--- Đã thêm thư viện kết nối trạm dữ liệu
 
 # ==========================================
 # 1. CẤU HÌNH TRANG WEB (BẮT BUỘC ĐỂ LÊN ĐẦU)
@@ -69,7 +69,7 @@ with st.form(key="search_form"):
         submit_button = st.form_submit_button(label="Tra cứu ngay")
 
 # ==========================================
-# 5. XỬ LÝ LOGIC SAU KHI NHẤN ENTER
+# 5. XỬ LÝ LOGIC SAU KHI NHẤN ENTER (ĐÃ LIÊN KẾT API)
 # ==========================================
 if submit_button and ticker_input != "":
     st.session_state["current_ticker"] = ticker_input
@@ -77,10 +77,22 @@ if submit_button and ticker_input != "":
     # Hiển thị thanh tiến trình để trang web có vẻ "mượt" hơn khi chờ dữ liệu
     with st.spinner(f"Đang quét dữ liệu đa nguồn cho mã {ticker_input}..."):
         
-        # TẠM THỜI GIỮ CHỖ (Dev sẽ đưa code gọi API vào đây sau)
-        st.success(f"Đã tải thành công dữ liệu nền tảng cho {ticker_input}!")
+        # 1. GỌI DỮ LIỆU TỪ MODULE data/api_fetcher.py
+        stock_info = get_stock_data(ticker_input)
         
-        # Chia cột để hiển thị: Trái là Biểu đồ, Phải là Vĩ mô & AI
+        # 2. HIỂN THỊ DỮ LIỆU CƠ BẢN LÊN GIAO DIỆN
+        st.success(f"Dữ liệu được lấy từ: **{stock_info['source']}**")
+        
+        # Tạo 4 cột hiển thị các chỉ số cốt lõi (Mô phỏng bảng điện)
+        metric1, metric2, metric3, metric4 = st.columns(4)
+        metric1.metric("Giá hiện tại (VND)", f"{stock_info['price']:,}")
+        metric2.metric("Khối lượng 24h", f"{stock_info['volume']:,}")
+        metric3.metric("Chỉ số P/E", str(stock_info['pe']))
+        metric4.metric("Chỉ số P/B", str(stock_info['pb']))
+        
+        st.markdown("---")
+        
+        # 3. CHIA CỘT BIỂU ĐỒ VÀ AI
         chart_col, ai_col = st.columns([7, 3])
         
         with chart_col:
