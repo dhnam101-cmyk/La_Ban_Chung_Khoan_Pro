@@ -3,12 +3,12 @@ import pandas as pd
 import sys
 import os
 
-# Ép hệ thống nhận diện thư mục gốc để nạp module
+# Bước 1: Ép hệ thống nhận diện thư mục gốc để nạp module nội bộ
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.append(current_dir)
 
-# Nạp các module nội bộ
+# Bước 2: Nạp các module xử lý dữ liệu, biểu đồ và AI
 try:
     from data.api_fetcher import get_stock_data 
     from components.chart_view import render_tradingview_chart
@@ -19,15 +19,15 @@ except ImportError as e:
 
 from streamlit_mic_recorder import mic_recorder 
 
-# 1. CẤU HÌNH TRANG
+# Bước 3: Cấu hình giao diện Streamlit
 st.set_page_config(page_title="La Bàn Chứng Khoán Pro AI", page_icon="📈", layout="wide")
 
-# 2. KHỞI TẠO STATE
+# Khởi tạo bộ nhớ tạm cho ứng dụng
 if "language" not in st.session_state: st.session_state["language"] = "Tiếng Việt"
 if "selected_model" not in st.session_state: st.session_state["selected_model"] = "gemini-1.5-flash"
 if "ai_response_text" not in st.session_state: st.session_state["ai_response_text"] = ""
 
-# 3. SIDEBAR
+# Bước 4: Thanh điều khiển Sidebar
 with st.sidebar:
     st.title("⚙️ Cài đặt")
     st.session_state["language"] = st.selectbox("🌐 Ngôn ngữ", options=["Tiếng Việt", "English"])
@@ -36,7 +36,7 @@ with st.sidebar:
     sel_model = st.selectbox("🤖 Chọn AI:", options=list(model_map.keys()))
     st.session_state["selected_model"] = model_map[sel_model]
 
-# 4. GIAO DIỆN CHÍNH
+# Bước 5: Giao diện chính
 st.title("📈 La Bàn Chứng Khoán AI (Pro 2026)")
 
 with st.container(border=True):
@@ -49,9 +49,10 @@ with st.container(border=True):
 
 submit_button = st.button("Phân tích ngay", type="primary")
 
+# Bước 6: Xử lý hiển thị
 if (submit_button or audio) and ticker_input != "":
     with st.spinner(f"🚀 AI đang quét dữ liệu mã {ticker_input}..."):
-        # Lấy dữ liệu
+        # Lấy dữ liệu chứng khoán
         stock_info = get_stock_data(ticker_input)
         
         m1, m2, m3, m4 = st.columns(4)
@@ -64,10 +65,10 @@ if (submit_button or audio) and ticker_input != "":
         
         c1, c2 = st.columns([0.65, 0.35])
         with c1:
-            st.subheader("📊 Biểu đồ")
+            st.subheader("📊 Biểu đồ Kỹ thuật")
             render_tradingview_chart(ticker_input)
         with c2:
-            st.subheader("🤖 Phân tích")
+            st.subheader("🤖 AI Nhận định")
             with st.container(border=True):
                 response = get_ai_analysis(
                     ticker_input, 
@@ -77,6 +78,7 @@ if (submit_button or audio) and ticker_input != "":
                 st.session_state["ai_response_text"] = response
                 st.markdown(response)
                 
+                # Nút đọc giọng nói
                 if st.button("🔊 Nghe"):
                     clean_text = response.replace("'", " ").replace('"', ' ').replace("\n", " ")
                     js_code = f"""
