@@ -28,3 +28,4 @@ streamlit-lightweight-charts==1.0.9
 # --- BẢO MẬT & MÔI TRƯỜNG ---
 python-dotenv==1.0.1
 # Lý do: Bảo mật các mã khóa (API Keys), tuyệt đối không để lộ key trên GitHub Public.
+google-generativeai
