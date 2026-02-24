@@ -1,78 +1,77 @@
 import streamlit as st
 import pandas as pd
-# ĐẢM BẢO NHẬP ĐÚNG CÁC MODULE NỘI BỘ
+# Kết nối các module nội bộ
 from data.api_fetcher import get_stock_data 
 from components.chart_view import render_tradingview_chart
 from ai_core.chatbot_engine import get_ai_analysis
 from streamlit_mic_recorder import mic_recorder 
 
-# CẤU HÌNH TRANG WEB
+# 1. CẤU HÌNH TRANG
 st.set_page_config(
     page_title="La Bàn Chứng Khoán Pro AI",
     page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-# KHỞI TẠO SESSION STATE
+# 2. KHỞI TẠO TRẠNG THÁI
 if "language" not in st.session_state:
     st.session_state["language"] = "Tiếng Việt"
 if "selected_model" not in st.session_state:
     st.session_state["selected_model"] = "gemini-1.5-flash"
 
-st.title("📈 La Bàn Chứng Khoán AI (Pro 2026)")
-
-# THANH SIDEBAR
+# 3. SIDEBAR
 with st.sidebar:
-    st.title("⚙️ Cài đặt Hệ thống")
+    st.title("⚙️ Cài đặt")
     st.session_state["language"] = st.selectbox("🌐 Ngôn ngữ", options=["Tiếng Việt", "English"])
-    st.markdown("---")
-    st.subheader("🤖 Cấu hình AI")
+    st.divider()
     model_map = {"Gemini 1.5 Flash": "gemini-1.5-flash", "Gemini 1.5 Pro": "gemini-1.5-pro"}
-    sel_model = st.selectbox("Chọn Model:", options=list(model_map.keys()))
+    sel_model = st.selectbox("🤖 Chọn AI:", options=list(model_map.keys()))
     st.session_state["selected_model"] = model_map[sel_model]
 
-# KHU VỰC NHẬP LIỆU
+# 4. GIAO DIỆN CHÍNH
+st.title("📈 La Bàn Chứng Khoán AI (Pro 2026)")
+
 with st.container(border=True):
-    col_text, col_mic = st.columns([0.85, 0.15])
+    col_text, col_mic = st.columns([0.8, 0.2])
     with col_text:
-        ticker_input = st.text_input("🔍 Nhập mã cổ phiếu:", placeholder="VD: FPT, HPG...").upper()
+        ticker_input = st.text_input("🔍 Nhập mã (VD: FPT, VCB):").upper()
     with col_mic:
         st.write("🎙️ Mic")
         audio = mic_recorder(start_prompt="Bật", stop_prompt="Dừng", key='recorder')
 
-submit_button = st.button("Phân tích ngay")
-
-if (submit_button or audio) and ticker_input != "":
-    with st.spinner(f"Đang phân tích mã {ticker_input}..."):
-        # Lấy dữ liệu từ data/api_fetcher.py
-        stock_info = get_stock_data(ticker_input) 
+if (st.button("Phân tích") or audio) and ticker_input:
+    with st.spinner(f"Đang xử lý {ticker_input}..."):
+        # Lấy dữ liệu
+        data = get_stock_data(ticker_input)
         
+        # Hiển thị chỉ số
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Giá (VND)", f"{stock_info['price']:,}")
-        m2.metric("Khối lượng", f"{stock_info['volume']:,}")
-        m3.metric("P/E", str(stock_info['pe']))
-        m4.metric("P/B", str(stock_info['pb']))
+        m1.metric("Giá", f"{data['price']:,}")
+        m2.metric("Khối lượng", f"{data['volume']:,}")
+        m3.metric("P/E", str(data['pe']))
+        m4.metric("P/B", str(data['pb']))
         
         st.divider()
         
-        # Chia cột Biểu đồ và AI
-        chart_col, ai_col = st.columns([7, 3])
-        with chart_col:
-            st.subheader("📊 Biểu đồ Kỹ thuật")
+        # Biểu đồ và AI
+        c1, c2 = st.columns([7, 3])
+        with c1:
+            st.subheader("📊 Biểu đồ")
             render_tradingview_chart(ticker_input)
-            
-        with ai_col:
-            st.subheader("🤖 Phân tích AI")
+        with c2:
+            st.subheader("🤖 AI Phân tích")
             with st.container(border=True):
-                # Gọi bộ não AI
-                response = get_ai_analysis(
-                    ticker_input, 
-                    st.session_state["language"],
-                    st.session_state["selected_model"]
-                )
-                st.markdown(response)
+                res = get_ai_analysis(ticker_input, st.session_state["language"], st.session_state["selected_model"])
+                st.markdown(res)
                 
+                # SỬA LỖI CÚ PHÁP TẠI ĐÂY: Sử dụng dấu nháy khác loại để tránh xung đột
                 if st.button("🔊 Nghe"):
-                    js = f"<script>speechSynthesis.speak(new SpeechSynthesisUtterance('{response.replace(\"'\", \"\")}'));</script>"
+                    clean_text = res.replace("'", " ").replace('"', ' ')
+                    js = f"""
+                    <script>
+                    var speech = new SpeechSynthesisUtterance("{clean_text}");
+                    speech.lang = 'vi-VN';
+                    window.speechSynthesis.speak(speech);
+                    </script>
+                    """
                     st.components.v1.html(js, height=0)
