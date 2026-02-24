@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
-from data.api_fetcher import get_stock_data  # <--- Đã thêm thư viện kết nối trạm dữ liệu
+from data.api_fetcher import get_stock_data
+from components.chart_view import render_tradingview_chart  # <--- Bổ sung thợ vẽ biểu đồ
 
 # ==========================================
 # 1. CẤU HÌNH TRANG WEB (BẮT BUỘC ĐỂ LÊN ĐẦU)
@@ -14,7 +15,6 @@ st.set_page_config(
 
 # ==========================================
 # 2. KHỞI TẠO BỘ NHỚ TẠM (SESSION STATE)
-# Giúp web không bị mất dữ liệu khi người dùng bấm nút
 # ==========================================
 if "language" not in st.session_state:
     st.session_state["language"] = "Tiếng Việt"
@@ -46,7 +46,6 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # Cảnh báo trạng thái API (Giao diện giữ chỗ cho Dev)
     st.success("Trạng thái AI: Đang hoạt động (Model chính)")
     st.info("Kết nối Dữ liệu: Real-time 100%")
 
@@ -61,20 +60,17 @@ with st.form(key="search_form"):
     col1, col2 = st.columns([4, 1])
     
     with col1:
-        # Nhập mã cổ phiếu, tự động in hoa
         ticker_input = st.text_input("🔍 Nhập mã cổ phiếu (VD: FPT, VCB, AAPL) và nhấn Enter:", value="").upper()
     
     with col2:
-        # Nút submit vô hình (Chỉ cần nhấn Enter ở ô input là form tự chạy)
         submit_button = st.form_submit_button(label="Tra cứu ngay")
 
 # ==========================================
-# 5. XỬ LÝ LOGIC SAU KHI NHẤN ENTER (ĐÃ LIÊN KẾT API)
+# 5. XỬ LÝ LOGIC SAU KHI NHẤN ENTER
 # ==========================================
 if submit_button and ticker_input != "":
     st.session_state["current_ticker"] = ticker_input
     
-    # Hiển thị thanh tiến trình để trang web có vẻ "mượt" hơn khi chờ dữ liệu
     with st.spinner(f"Đang quét dữ liệu đa nguồn cho mã {ticker_input}..."):
         
         # 1. GỌI DỮ LIỆU TỪ MODULE data/api_fetcher.py
@@ -83,7 +79,6 @@ if submit_button and ticker_input != "":
         # 2. HIỂN THỊ DỮ LIỆU CƠ BẢN LÊN GIAO DIỆN
         st.success(f"Dữ liệu được lấy từ: **{stock_info['source']}**")
         
-        # Tạo 4 cột hiển thị các chỉ số cốt lõi (Mô phỏng bảng điện)
         metric1, metric2, metric3, metric4 = st.columns(4)
         metric1.metric("Giá hiện tại (VND)", f"{stock_info['price']:,}")
         metric2.metric("Khối lượng 24h", f"{stock_info['volume']:,}")
@@ -97,7 +92,8 @@ if submit_button and ticker_input != "":
         
         with chart_col:
             st.subheader("📊 Biểu đồ Kỹ thuật (TradingView)")
-            st.info("Khu vực này sẽ nhúng module components/chart_view.py ở Giai đoạn 3.")
+            # Đã thay thế dòng thông báo bằng hàm vẽ biểu đồ thật
+            render_tradingview_chart(ticker_input) 
             
         with ai_col:
             st.subheader("🤖 Phân tích AI & Vĩ mô")
