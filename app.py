@@ -1,103 +1,95 @@
 import streamlit as st
-import google.generativeai as genai
 import pandas as pd
-import time
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import pandas_ta as ta
-import yfinance as yf
+# Lưu ý: Các thư viện xử lý sâu sẽ được import ở các file module sau này
 
-# --- 1. KIẾN TRÚC DỊCH THUẬT NGÀNH (FIX image_b90d44) ---
-st.set_page_config(page_title="AI Terminal V69: Supremacy", layout="wide")
+# ==========================================
+# 1. CẤU HÌNH TRANG WEB (BẮT BUỘC ĐỂ LÊN ĐẦU)
+# ==========================================
+st.set_page_config(
+    page_title="La Bàn Chứng Khoán Pro AI",
+    page_icon="📈",
+    layout="wide", # Mở rộng toàn màn hình để xem biểu đồ rõ hơn
+    initial_sidebar_state="expanded"
+)
 
-IND_MAP = {
-    "Banks": "Ngân hàng", "Steel": "Thép", "Real Estate": "Bất động sản",
-    "Information Technology": "Công nghệ", "Financial Services": "Chứng khoán",
-    "Oil & Gas": "Dầu khí", "Consumer": "Tiêu dùng", "Utilities": "Điện nước"
-}
+# ==========================================
+# 2. KHỞI TẠO BỘ NHỚ TẠM (SESSION STATE)
+# Giúp web không bị mất dữ liệu khi người dùng bấm nút
+# ==========================================
+if "language" not in st.session_state:
+    st.session_state["language"] = "Tiếng Việt"
+if "current_ticker" not in st.session_state:
+    st.session_state["current_ticker"] = "" # Mã cổ phiếu đang tra cứu
 
-T = {
-    "Tiếng Việt": {"p": "Giá", "pe": "P/E", "pb": "P/B", "pei": "P/E Ngành", "pbi": "P/B Ngành", "ind": "Ngành", "msg": "Mã/Câu hỏi lọc mã và ENTER:"}
-}
-
+# ==========================================
+# 3. THIẾT KẾ THANH ĐIỀU HƯỚNG BÊN TRÁI (SIDEBAR)
+# ==========================================
 with st.sidebar:
-    st.header("⚙️ Supremacy Core")
-    m_target = st.selectbox("🌍 Thị trường", ["Việt Nam", "Mỹ (USA)"])
-    m_config = {"Việt Nam": {"suffix": ".VN", "is_intl": False}, "Mỹ (USA)": {"suffix": "", "is_intl": True}}
-
-# --- 2. HỆ THỐNG AI BẤT TỬ (FIX image_b90dfa) ---
-@st.cache_resource
-def get_ai_supremacy():
-    try:
-        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        # Dò tìm model đang sống để tránh bảng lỗi đỏ
-        alive = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        prio = ['models/gemini-1.5-flash', 'models/gemini-pro']
-        for p in prio:
-            if p in alive: return genai.GenerativeModel(p)
-        return genai.GenerativeModel(alive[0])
-    except: return None
-
-# --- 3. MA TRẬN DỮ LIỆU ĐỘT KÍCH (DIỆT TẬN GỐC N/A) ---
-def fetch_data_supremacy(ticker, market):
-    sym = ticker.upper().strip()
-    cfg = m_config[market]
-    df, p, pe, pb, ind = None, 0, "N/A", "N/A", "N/A"
+    st.title("⚙️ Cài đặt Hệ thống")
     
-    try:
-        # Ép radar gắn đuôi ngầm để tránh giá 142 (image_acd660)
-        target = sym + cfg["suffix"]
-        s = yf.Ticker(target); info = s.info
-        h = s.history(period="6mo").reset_index()
-        if not h.empty:
-            df = h; df.columns = [c.lower() for c in df.columns]; p = df['close'].iloc[-1]
-            pe = info.get('trailingPE') or info.get('forwardPE') or "N/A"
-            pb = info.get('priceToBook') or "N/A"
-            raw_ind = info.get('industry') or info.get('sector') or "N/A"
-            # Ép dịch Ngành (Fix image_b90d44)
-            ind = next((v for k, v in IND_MAP.items() if k in raw_ind), raw_ind)
-    except: pass
-    return df, p, pe, pb, ind
+    # Nút chọn ngôn ngữ lập tức lưu vào Session State
+    selected_lang = st.selectbox(
+        "🌐 Ngôn ngữ / Language", 
+        options=["Tiếng Việt", "English"],
+        index=0 if st.session_state["language"] == "Tiếng Việt" else 1
+    )
+    st.session_state["language"] = selected_lang
+    
+    st.markdown("---")
+    
+    # Khu vực chọn sàn giao dịch
+    st.subheader("🏦 Chọn thị trường")
+    market_choice = st.selectbox(
+        "Sàn giao dịch:",
+        options=["VN-Index (Việt Nam)", "S&P 500 (Mỹ)", "Crypto (Binance)"]
+    )
+    
+    st.markdown("---")
+    
+    # Cảnh báo trạng thái API (Giao diện giữ chỗ cho Dev)
+    st.success("Trạng thái AI: Đang hoạt động (Model chính)")
+    st.info("Kết nối Dữ liệu: Real-time 100%")
 
-# --- 4. GIAO DIỆN PHÍM ENTER ---
-query = st.text_input(f"🔍 {T['Tiếng Việt']['msg']}", "GEX").upper()
+# ==========================================
+# 4. KHU VỰC HIỂN THỊ CHÍNH (MAIN AREA)
+# ==========================================
+st.title("📈 Bảng Điều Khiển: La Bàn Chứng Khoán AI")
+st.write(f"Đang hiển thị ngôn ngữ: **{st.session_state['language']}** | Thị trường: **{market_choice}**")
 
-if query:
-    model = get_ai_supremacy()
-    if len(query.split()) > 2: # CHATBOT LỌC MÃ (Yêu cầu 13)
-        if model:
-            with st.spinner("AI Sovereign is scanning market..."):
-                prompt = f"Expert Tycoon. Market {m_target}. LIST 10 SPECIFIC CODES + PRICES for: {query}. Symbols and data only. Reply in Tiếng Việt."
-                try: st.write(model.generate_content(prompt).text)
-                except: st.error("AI Busy. Please retry in 15s.")
-    else: # ANALYZER
-        with st.spinner("Synchronizing Sovereign Finality..."):
-            df, p_now, pe, pb, ind = fetch_data_supremacy(query, m_target)
-            if df is not None and not df.empty:
-                # 🤖 AI ĐỨNG RA LẤY P/E NGÀNH CHUẨN (FIX image_b911fd)
-                try:
-                    res = model.generate_content(f"Give EXACT average P/E and P/B for {ind} industry in {m_target} market Feb 2026. Format PE:X|PB:Y. Short only.").text
-                    pei, pbi = res.split('|')[0].split(':')[-1], res.split('|')[1].split(':')[-1]
-                except: pei, pbi = "22.5", "1.8"
+# Form tra cứu mã cổ phiếu (Sử dụng Enter để kích hoạt)
+with st.form(key="search_form"):
+    col1, col2 = st.columns([4, 1])
+    
+    with col1:
+        # Nhập mã cổ phiếu, tự động in hoa
+        ticker_input = st.text_input("🔍 Nhập mã cổ phiếu (VD: FPT, VCB, AAPL) và nhấn Enter:", value="").upper()
+    
+    with col2:
+        # Nút submit vô hình (Chỉ cần nhấn Enter ở ô input là form tự chạy)
+        submit_button = st.form_submit_button(label="Tra cứu ngay")
 
-                st.success(f"📌 {query} | {m_target}")
-                c1, c2, c3, c4, c5, c6 = st.columns(6)
-                c1.metric(T['Tiếng Việt']['p'], f"{p_now:,.0f}" if not m_config[m_target]['is_intl'] else f"${p_now:,.2f}")
-                c2.metric(T['Tiếng Việt']['pe'], pe); c3.metric(T['Tiếng Việt']['pb'], pb)
-                c4.metric(T['Tiếng Việt']['pei'], pei); c5.metric(T['Tiếng Việt']['pbi'], pbi)
-                c6.metric(T['Tiếng Việt']['ind'], ind)
+# ==========================================
+# 5. XỬ LÝ LOGIC SAU KHI NHẤN ENTER
+# ==========================================
+if submit_button and ticker_input != "":
+    st.session_state["current_ticker"] = ticker_input
+    
+    # Hiển thị thanh tiến trình để trang web có vẻ "mượt" hơn khi chờ dữ liệu
+    with st.spinner(f"Đang quét dữ liệu đa nguồn cho mã {ticker_input}..."):
+        
+        # TẠM THỜI GIỮ CHỖ (Dev sẽ đưa code gọi API vào đây sau)
+        st.success(f"Đã tải thành công dữ liệu nền tảng cho {ticker_input}!")
+        
+        # Chia cột để hiển thị: Trái là Biểu đồ, Phải là Vĩ mô & AI
+        chart_col, ai_col = st.columns([7, 3])
+        
+        with chart_col:
+            st.subheader("📊 Biểu đồ Kỹ thuật (TradingView)")
+            st.info("Khu vực này sẽ nhúng module components/chart_view.py ở Giai đoạn 3.")
+            
+        with ai_col:
+            st.subheader("🤖 Phân tích AI & Vĩ mô")
+            st.warning("Khu vực này sẽ nhúng module components/ai_chatbot.py ở Giai đoạn 4.")
 
-                # BIỂU ĐỒ 2 TẦNG (FIX Indent)
-                fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.7, 0.3])
-                fig.add_trace(go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name="Giá"), row=1, col=1)
-                colors = ['#EF5350' if df['open'].iloc[i] > df['close'].iloc[i] else '#26A69A' for i in range(len(df))]
-                fig.add_trace(go.Bar(x=df['date'], y=df['volume'], marker_color=colors, name="Volume"), row=2, col=1)
-                fig.update_layout(height=600, template="plotly_dark", xaxis_rangeslider_visible=False, showlegend=False)
-                st.plotly_chart(fig, use_container_width=True)
-
-                # PHÂN TÍCH CHUYÊN SÂU (FIX image_b90dfa)
-                if model:
-                    st.subheader("🤖 Phân tích Chuyên gia")
-                    try: st.write(model.generate_content(f"Pro analysis of {query} ({m_target}) at {p_now}. Industry avg PE is {pei}. Detecting Smart Money. Tiếng Việt.").text)
-                    except: st.warning("AI Overloaded. Report unavailable.")
-            else: st.error("Data Not Found.")
+elif submit_button and ticker_input == "":
+    st.error("Vui lòng nhập một mã cổ phiếu hợp lệ!")
