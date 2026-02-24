@@ -1,8 +1,30 @@
-streamlit
-google-generativeai
-plotly
-pandas
-requests
-yfinance
-pandas_ta
-beautifulsoup4
+# --- GIAO DIỆN & LÕI HỆ THỐNG ---
+streamlit==1.32.0
+# Lý do: Cố định bản 1.32.0, đây là bản ổn định nhất cho giao diện chớp nháy thời gian thực.
+
+# --- XỬ LÝ DỮ LIỆU & TOÁN HỌC ---
+pandas==2.2.1
+# Lý do: Xử lý mảng dữ liệu khổng lồ của chứng khoán (Volume, Giá).
+numpy==1.26.4
+# Lý do: Hỗ trợ tính toán các chỉ báo VSA, MA, RSI nhanh chóng.
+
+# --- KẾT NỐI API & QUÉT MẠNG ---
+requests==2.31.0
+# Lý do: Gọi API lấy giá chứng khoán từ các sàn.
+beautifulsoup4==4.12.3
+# Lý do: Quét (Scrape) dữ liệu vĩ mô (DXY, Hàng hóa) từ các trang tin tức nếu API lỗi.
+urllib3==2.2.1
+
+# --- TRÍ TUỆ NHÂN TẠO & CHỐNG LỖI ---
+openai==1.14.0
+# Lý do: Giao tiếp với model AI phân tích.
+tenacity==8.2.3
+# Lý do: ĐÂY LÀ CHÌA KHÓA CHỐNG SẬP. Thư viện này tự động gọi lại (Retry) khi API báo lỗi 429 hoặc 500.
+
+# --- BIỂU ĐỒ TRADINGVIEW ---
+streamlit-lightweight-charts==1.0.9
+# Lý do: Nhúng biểu đồ chuẩn TradingView (tách nến và volume) vào thẳng Streamlit.
+
+# --- BẢO MẬT & MÔI TRƯỜNG ---
+python-dotenv==1.0.1
+# Lý do: Bảo mật các mã khóa (API Keys), tuyệt đối không để lộ key trên GitHub Public.
