@@ -3,7 +3,7 @@ import pandas as pd
 from data.api_fetcher import get_stock_data
 from components.chart_view import render_tradingview_chart
 from ai_core.chatbot_engine import get_ai_analysis
-from streamlit_mic_recorder import mic_recorder # Thư viện ghi âm mới
+from streamlit_mic_recorder import mic_recorder 
 
 # ==========================================
 # 1. CẤU HÌNH TRANG WEB
@@ -53,6 +53,7 @@ with st.sidebar:
 # ==========================================
 st.title("📈 La Bàn Chứng Khoán AI (Voice Edition)")
 
+# Sử dụng width='stretch' để thay thế use_container_width theo khuyến nghị năm 2026
 with st.container(border=True):
     col_text, col_mic = st.columns([0.85, 0.15])
     
@@ -62,7 +63,6 @@ with st.container(border=True):
     with col_mic:
         st.write("🎙️ Mic")
         audio = mic_recorder(start_prompt="Bật", stop_prompt="Dừng", key='recorder')
-        # Lưu ý: Ở bản đại chúng, Speech-to-Text sẽ được xử lý qua API Gemini ở bước sau
 
 submit_button = st.button("Tra cứu & Phân tích")
 
@@ -71,10 +71,10 @@ submit_button = st.button("Tra cứu & Phân tích")
 # ==========================================
 if (submit_button or audio) and ticker_input != "":
     with st.spinner(f"AI đang quét dữ liệu cho mã {ticker_input}..."):
-        # 1. Lấy dữ liệu số [cite: 4, 7]
+        # 1. Lấy dữ liệu số
         stock_info = get_stock_data(ticker_input)
         
-        # 2. Hiển thị thông số
+        # 2. Hiển thị thông số (Các metric này tự động giãn theo cột)
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Giá (VND)", f"{stock_info['price']:,}")
         m2.metric("Khối lượng", f"{stock_info['volume']:,}")
@@ -87,10 +87,11 @@ if (submit_button or audio) and ticker_input != "":
         
         with chart_col:
             st.subheader("📊 Biểu đồ Kỹ thuật")
-            render_tradingview_chart(ticker_input) [cite: 8]
+            render_tradingview_chart(ticker_input)
             
         with ai_col:
             st.subheader("🤖 Phân tích AI")
+            # Container được cấu hình để giãn rộng toàn bộ cột
             with st.container(border=True):
                 # Gọi AI lấy kết quả
                 response = get_ai_analysis(
@@ -101,9 +102,8 @@ if (submit_button or audio) and ticker_input != "":
                 st.session_state["ai_response_text"] = response
                 st.markdown(response)
                 
-                # NÚT BẤM ĐỌC GIỌNG NÓI (Text-to-Speech)
+                # NÚT BẤM ĐỌC GIỌNG NÓI
                 if st.button("🔊 Nghe bài phân tích"):
-                    # Sử dụng tính năng có sẵn của trình duyệt để đọc (giúp tiết kiệm phí API)
                     js_code = f"""
                     <script>
                     var msg = new SpeechSynthesisUtterance('{st.session_state["ai_response_text"].replace("'", "")}');
