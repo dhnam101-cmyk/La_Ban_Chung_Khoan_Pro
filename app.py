@@ -1,104 +1,58 @@
 import streamlit as st
-import pandas as pd
 import sys
 import os
 
-# 1. ÉP HỆ THỐNG NHẬN DIỆN THƯ MỤC NỘI BỘ
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.append(current_dir)
+# Ép hệ thống nhận diện thư mục
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
-# 2. NẠP CÁC MODULE VỚI XỬ LÝ LỖI
 try:
     from data.api_fetcher import get_stock_data 
     from components.chart_view import render_tradingview_chart
     from ai_core.chatbot_engine import get_ai_analysis
-except ImportError as e:
-    st.error(f"❌ Lỗi nạp module nội bộ: {e}")
+except Exception as e:
+    st.error(f"Lỗi khởi động: {e}")
     st.stop()
 
-from streamlit_mic_recorder import mic_recorder 
+st.set_page_config(page_title="La Bàn Chứng Khoán Pro", layout="wide")
 
-# 3. CẤU HÌNH TRANG
-st.set_page_config(
-    page_title="La Bàn Chứng Khoán Pro AI",
-    page_icon="📈",
-    layout="wide"
-)
-
-# Khởi tạo trạng thái ứng dụng
-if "language" not in st.session_state:
-    st.session_state["language"] = "Tiếng Việt"
-if "selected_model" not in st.session_state:
-    st.session_state["selected_model"] = "gemini-1.5-flash"
-
-# 4. THANH ĐIỀU KHIỂN (SIDEBAR)
+# SIDEBAR: THÊM NÚT CHỌN THỊ TRƯỜNG
 with st.sidebar:
-    st.title("⚙️ Cài đặt")
-    st.session_state["language"] = st.selectbox("🌐 Ngôn ngữ", options=["Tiếng Việt", "English"])
+    st.header("🌐 Thị trường")
+    market = st.radio("Chọn sàn giao dịch:", ["Tất cả", "HOSE", "HNX", "UPCOM"])
     st.divider()
-    st.subheader("🤖 Cấu hình AI")
-    model_map = {"Gemini 1.5 Flash": "gemini-1.5-flash", "Gemini 1.5 Pro": "gemini-1.5-pro"}
-    sel_model = st.selectbox("Chọn Model:", options=list(model_map.keys()))
-    st.session_state["selected_model"] = model_map[sel_model]
+    model = st.selectbox("🤖 Model AI:", ["gemini-1.5-flash", "gemini-1.5-pro"])
 
-# 5. GIAO DIỆN CHÍNH
-st.title("📈 La Bàn Chứng Khoán AI (Dữ liệu Đa nguồn)")
+st.title("📈 La Bàn Chứng Khoán AI (Bản Full Dữ Liệu)")
 
-with st.container(border=True):
-    col_text, col_mic = st.columns([0.85, 0.15])
-    with col_text:
-        ticker_input = st.text_input("🔍 Nhập mã cổ phiếu (VD: FPT, HPG, VCB):").upper()
-    with col_mic:
-        st.write("🎙️ Ghi âm")
-        audio = mic_recorder(start_prompt="Bật Mic", stop_prompt="Dừng", key='recorder')
+ticker = st.text_input("🔍 Nhập mã cổ phiếu:").upper()
 
-submit_button = st.button("Phân tích ngay", type="primary")
+if st.button("Soi mã") and ticker:
+    data = get_stock_data(ticker)
+    
+    if "error" in data:
+        st.error(data["error"])
+    else:
+        # HÀNG 1: THÔNG TIN CƠ BẢN
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Giá hiện tại", f"{data['price']:,} VNĐ")
+        c2.metric("Khối lượng ngày", f"{data['volume']:,}")
+        c3.metric("Sàn niêm yết", data['market'])
+        c4.metric("Ngành", data['industry'])
 
-# 6. XỬ LÝ DỮ LIỆU & HIỂN THỊ
-if (submit_button or audio) and ticker_input:
-    with st.spinner(f"🚀 Hệ thống đang quét đa nguồn cho mã {ticker_input}..."):
-        # Lấy dữ liệu từ hệ thống dự phòng (api_fetcher.py)
-        data = get_stock_data(ticker_input)
-        
-        # Hiển thị nguồn dữ liệu để người dùng kiểm chứng
-        if data['price'] > 0:
-            st.success(f"✅ Đã lấy dữ liệu từ: **{data['source']}**")
-        else:
-            st.error(f"❌ Thất bại: {data['source']}")
+        # HÀNG 2: SO SÁNH ĐỊNH GIÁ (P/E, P/B)
+        st.subheader("⚖️ Định giá & So sánh ngành")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("P/E Cổ phiếu", str(data['pe']))
+        col2.metric("P/E Trung bình ngành", str(data['avg_pe']), delta=round(float(data['pe'])-data['avg_pe'],2) if data['pe']!="N/A" else 0, delta_color="inverse")
+        col3.metric("P/B Cổ phiếu", str(data['pb']))
+        col4.metric("P/B Trung bình ngành", str(data['avg_pb']), delta=round(float(data['pb'])-data['avg_pb'],2) if data['pb']!="N/A" else 0, delta_color="inverse")
 
-        # Hiển thị các chỉ số tài chính thực tế
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Giá (VND)", f"{data['price']:,}")
-        m2.metric("Khối lượng", f"{data['volume']:,}")
-        m3.metric("Chỉ số P/E", str(data['pe']))
-        m4.metric("Chỉ số P/B", str(data['pb']))
-        
         st.divider()
         
-        # Bố cục Biểu đồ và AI Phân tích
-        c1, c2 = st.columns([0.65, 0.35])
-        with c1:
-            st.subheader("📊 Biểu đồ Kỹ thuật")
-            render_tradingview_chart(ticker_input)
-        with c2:
-            st.subheader("🤖 AI Nhận định")
-            with st.container(border=True):
-                res = get_ai_analysis(
-                    ticker_input, 
-                    st.session_state["language"], 
-                    st.session_state["selected_model"]
-                )
-                st.markdown(res)
-                
-                # Tính năng đọc kết quả
-                if st.button("🔊 Nghe phân tích"):
-                    clean_text = res.replace("'", " ").replace('"', ' ').replace("\n", " ")
-                    js = f"""
-                    <script>
-                    var msg = new SpeechSynthesisUtterance('{clean_text}');
-                    msg.lang = 'vi-VN';
-                    window.speechSynthesis.speak(msg);
-                    </script>
-                    """
-                    st.components.v1.html(js, height=0)
+        # BIỂU ĐỒ VÀ AI
+        left, right = st.columns([7, 3])
+        with left:
+            render_tradingview_chart(ticker)
+        with right:
+            analysis = get_ai_analysis(ticker, "Tiếng Việt", model)
+            st.markdown(analysis)
