@@ -4,9 +4,8 @@ numpy
 requests
 beautifulsoup4
 urllib3
-openai
 tenacity
-streamlit-lightweight-charts
-python-dotenv
 google-generativeai
 streamlit-mic-recorder
+streamlit-lightweight-charts
+python-dotenv
