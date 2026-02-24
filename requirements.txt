@@ -5,6 +5,7 @@ requests
 beautifulsoup4
 urllib3
 tenacity
+yfinance
 google-generativeai
 streamlit-mic-recorder
 streamlit-lightweight-charts
