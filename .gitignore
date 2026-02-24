@@ -1,0 +1,8 @@
+# Bỏ qua các file chứa mật khẩu và API Key
+.env
+secrets.toml
+.streamlit/secrets.toml
+
+# Bỏ qua các file rác của hệ thống Python
+__pycache__/
+*.pyc
