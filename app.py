@@ -1,7 +1,7 @@
 """
 ================================================================================
   La Bàn Chứng Khoán AI Pro - app.py (Entry Point)
-  Cấu trúc phẳng (flat): Tất cả import từ cùng thư mục.
+  Cấu trúc phẳng (flat): Tất cả file .py nằm cùng thư mục gốc repo.
   Chạy bằng: streamlit run app.py
 ================================================================================
 """
@@ -9,14 +9,37 @@
 import streamlit as st
 import sys, os, json
 
-# ── Thêm thư mục hiện tại vào path để import module cùng cấp ──────────────────
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# ── Đảm bảo Python tìm được các module trong cùng thư mục ────────────────────
+# Cần thiết trên Streamlit Cloud vì CWD có thể khác __file__
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+# Cũng thêm CWD phòng trường hợp Streamlit Cloud thay đổi working directory
+if os.getcwd() not in sys.path:
+    sys.path.insert(0, os.getcwd())
 
-# ── Import các module nội bộ ──────────────────────────────────────────────────
-from data_fetcher import get_stock_data
-from chart_ui import render_chart
-from chatbot_ui import render_chat_interface
-from ai_engine import get_ai_analysis
+# ── Import các module nội bộ (với thông báo lỗi rõ ràng) ─────────────────────
+try:
+    from data_fetcher import get_stock_data
+    from chart_ui import render_chart
+    from chatbot_ui import render_chat_interface
+    from ai_engine import get_ai_analysis
+except ModuleNotFoundError as _import_err:
+    st.error(f"""
+**❌ Lỗi Import Module: `{_import_err}`**
+
+**Nguyên nhân thường gặp trên Streamlit Cloud:**
+Các file sau phải nằm **cùng thư mục gốc** của repo (không được để trong subfolder):
+- `app.py`
+- `data_fetcher.py`
+- `chart_ui.py`
+- `chatbot_ui.py`
+- `ai_engine.py`
+
+**Kiểm tra GitHub repo của bạn** — nếu còn thư mục `core/` hoặc `components/`, 
+hãy move các file ra ngoài thư mục gốc rồi commit lại.
+""")
+    st.stop()
 
 # ── Import thư viện voice (bắt lỗi nếu chưa cài) ─────────────────────────────
 try:
