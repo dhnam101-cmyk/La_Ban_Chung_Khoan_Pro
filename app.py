@@ -3,33 +3,29 @@ import sys
 import os
 import json
 
-# ÉP HỆ THỐNG NHẬN DIỆN THƯ MỤC GỐC
 current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.append(current_dir)
+if current_dir not in sys.path: sys.path.append(current_dir)
 
 try:
     from core.data_fetcher import get_stock_data 
     from components.chart_ui import render_tradingview_chart
     from components.chatbot_ui import render_chat_interface
 except ImportError as e:
-    st.error(f"❌ Lỗi sai cấu trúc thư mục: {e}")
+    st.error(f"❌ Lỗi cấu trúc: {e}")
     st.stop()
 
-# Đã thay bằng speech_to_text để thu âm là nó tự nhận diện chữ luôn
 from streamlit_mic_recorder import speech_to_text 
 
 @st.cache_data
 def load_locales(lang_code):
     file_path = os.path.join(current_dir, "locales", f"{lang_code}.json")
     if os.path.exists(file_path):
-        with open(file_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        with open(file_path, "r", encoding="utf-8") as f: return json.load(f)
     return {}
 
 st.set_page_config(page_title="La Bàn Chứng Khoán Pro", page_icon="📈", layout="wide")
 
-# CSS: THU NHỎ CHỈ SỐ THEO YÊU CẦU CỦA BẠN
+# Thu nhỏ size hiển thị P/E, Giá...
 st.markdown("""
 <style>
     [data-testid="stMetricValue"] { font-size: 1.5rem !important; }
@@ -42,7 +38,7 @@ if "selected_model" not in st.session_state: st.session_state["selected_model"] 
 
 loc = load_locales(st.session_state["language"])
 
-# SIDEBAR (BẢO TOÀN ĐẦY ĐỦ THỊ TRƯỜNG, NGÔN NGỮ, AI)
+# SIDEBAR (THỊ TRƯỜNG, NGÔN NGỮ, MODEL)
 with st.sidebar:
     st.title(loc.get("sidebar_title", "⚙️ Cài đặt Hệ thống"))
     lang_display = st.selectbox(loc.get("lang_select", "🌐 Ngôn ngữ:"), ["Tiếng Việt (vi)", "English (en)"])
@@ -52,7 +48,7 @@ with st.sidebar:
         st.rerun()
     st.divider()
     st.subheader("🏢 Thị trường")
-    st.session_state["market_filter"] = st.radio("Chọn sàn giao dịch:", ["Tất cả", "HOSE (HSX)", "HNX", "UPCOM"])
+    st.session_state["market_filter"] = st.radio("Chọn sàn giao dịch:", ["Tất cả", "HOSE", "HNX", "UPCOM"])
     st.divider()
     st.subheader(loc.get("ai_config", "🤖 Cấu hình AI"))
     model_map = {"Gemini 1.5 Flash (Nhanh)": "gemini-1.5-flash", "Gemini 1.5 Pro (Sâu)": "gemini-1.5-pro"}
@@ -61,63 +57,53 @@ with st.sidebar:
 
 st.title(loc.get("title", "📈 La Bàn Chứng Khoán AI Pro"))
 
-# Ô TÌM KIẾM ĐA NĂNG
+# TÌM KIẾM (MÃ & GIỌNG NÓI & ENTER)
 with st.form(key="search_form"):
     col_input, col_btn = st.columns([0.85, 0.15])
     with col_input:
-        form_input = st.text_input(
-            "🔍 Nhập mã HOẶC câu hỏi thị trường (Gõ xong ấn Enter):", 
-            placeholder="VD: FPT, hoặc 'Phân tích ngành công nghệ hôm nay...'"
-        ).strip()
+        form_input = st.text_input("🔍 Nhập mã HOẶC câu hỏi thị trường (Ấn Enter):", placeholder="VD: FPT, hoặc 'Ngành thép hôm nay'").strip()
     with col_btn:
         st.markdown("<br>", unsafe_allow_html=True)
         submit_button = st.form_submit_button(loc.get("btn_analyze", "Phân tích"))
 
-# HỖ TRỢ VOICE SEARCH Ở TRANG CHỦ
 st.caption("🎙️ Hoặc tìm bằng giọng nói:")
 voice_input = speech_to_text(language='vi-VN', start_prompt="Bấm để nói", stop_prompt="Dừng", key='main_mic')
 
-# XỬ LÝ ĐỊNH TUYẾN 
 user_input = form_input if form_input else voice_input
 
+# ĐỊNH TUYẾN THÔNG MINH
 if (submit_button or voice_input) and user_input:
-    # Nếu nhập <= 6 ký tự và 1 từ => LÀ MÃ CỔ PHIẾU
     is_ticker = len(user_input.split()) == 1 and len(user_input) <= 6
     lang_prompt = "Tiếng Việt" if st.session_state["language"] == "vi" else "English"
 
     if is_ticker:
         ticker_input = user_input.upper()
-        with st.spinner(f"{loc.get('loading', 'Đang quét dữ liệu mã')} {ticker_input}..."):
+        with st.spinner(f"{loc.get('loading', 'Đang quét')} {ticker_input}..."):
             data = get_stock_data(ticker_input)
             if "error" in data:
                 st.error(f"❌ {data['error']}")
             else:
-                # 1. HÀNG CHỈ SỐ (NHỎ GỌN, 6 CỘT)
                 st.subheader(loc.get("trade_info", "📊 Thông tin & Định giá"))
                 c1, c2, c3, c4, c5, c6 = st.columns(6)
                 c1.metric(loc.get("price", "Giá"), f"{data.get('price', 0):,} VNĐ")
                 c2.metric(loc.get("volume", "Khối lượng"), f"{data.get('volume', 0):,}")
                 
-                pe = data.get('pe', 'N/A')
-                avg_pe = data.get('avg_pe', 0)
+                pe, avg_pe = data.get('pe', 'N/A'), data.get('avg_pe', 0)
                 c3.metric(loc.get("pe_stock", "P/E"), str(pe))
                 c4.metric(loc.get("pe_avg", "P/E Ngành"), str(avg_pe), delta=round(float(pe) - avg_pe, 2) if pe != "N/A" and avg_pe else 0, delta_color="inverse")
                 
-                pb = data.get('pb', 'N/A')
-                avg_pb = data.get('avg_pb', 0)
+                pb, avg_pb = data.get('pb', 'N/A'), data.get('avg_pb', 0)
                 c5.metric(loc.get("pb_stock", "P/B"), str(pb))
                 c6.metric(loc.get("pb_avg", "P/B Ngành"), str(avg_pb), delta=round(float(pb) - avg_pb, 2) if pb != "N/A" and avg_pb else 0, delta_color="inverse")
                 st.divider()
                 
-                # 2. BIỂU ĐỒ (TO ĐÙNG 100% CHIỀU RỘNG)
                 st.subheader(loc.get("chart", "📊 Biểu đồ Kỹ thuật"))
-                render_tradingview_chart(ticker_input)
+                # Khắc phục lỗi Popup TradingView bằng cách chèn market vào
+                render_tradingview_chart(ticker_input, exchange=data.get('market', 'HOSE'))
                 st.divider()
 
-                # 3. CHATBOT (ĐẨY XUỐNG DƯỚI CÙNG)
                 st.subheader(loc.get("ai_analysis", "🤖 Trò chuyện AI"))
                 render_chat_interface(ticker_input, lang_prompt, st.session_state["selected_model"], is_general_query=False)
     else:
-        # NẾU LÀ CÂU HỎI THỊ TRƯỜNG => BỎ QUA BIỂU ĐỒ, CHAT LUÔN
         st.info("💡 Chế độ: Phân tích Thị trường chung")
         render_chat_interface("Thị trường", lang_prompt, st.session_state["selected_model"], is_general_query=True, initial_query=user_input)
