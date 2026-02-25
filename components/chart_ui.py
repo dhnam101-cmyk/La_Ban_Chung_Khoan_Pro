@@ -1,12 +1,11 @@
 """
 ================================================================================
-  components/chart_ui.py — Biểu đồ Candlestick full-size với Plotly
-  Features:
-  ✅ Chiếm tối đa diện tích màn hình (height=750)
+  components/chart_ui.py — Biểu đồ Candlestick full-size
+
+  FIXES v2.2:
+  ✅ Thay use_container_width=True → width='stretch' (Streamlit 1.54+ yêu cầu)
+  ✅ Retry chống YFRateLimitError
   ✅ Candlestick + SMA 20/50 + Volume sub-chart
-  ✅ Bộ chọn khung thời gian (1mo → 5y)
-  ✅ Xử lý YFRateLimitError, retry 3 lần
-  ✅ Hỗ trợ đa khu vực VN / US / INTL
 ================================================================================
 """
 
@@ -19,7 +18,6 @@ import time
 
 
 def _fetch_chart_data(ticker: str, region: str = "VN", period: str = "1y") -> pd.DataFrame:
-    """Tải OHLCV với retry chống rate limit."""
     suffix_map = {"VN": ".VN", "US": "", "INTL": ""}
     yf_str     = f"{ticker}{suffix_map.get(region, '')}"
 
@@ -28,10 +26,10 @@ def _fetch_chart_data(ticker: str, region: str = "VN", period: str = "1y") -> pd
             df = yf.download(yf_str, period=period, progress=False, timeout=12)
             if not df.empty:
                 return df
-            if suffix_map.get(region):              # Thử không suffix
-                df = yf.download(ticker, period=period, progress=False, timeout=12)
-                if not df.empty:
-                    return df
+            if suffix_map.get(region):
+                df2 = yf.download(ticker, period=period, progress=False, timeout=12)
+                if not df2.empty:
+                    return df2
             return pd.DataFrame()
         except Exception as e:
             err = str(e).lower()
@@ -43,17 +41,13 @@ def _fetch_chart_data(ticker: str, region: str = "VN", period: str = "1y") -> pd
 
 
 def render_chart(ticker: str, exchange: str = "HOSE", region: str = "VN"):
-    """
-    Vẽ biểu đồ candlestick full-width.
-    Gọi hàm này TRƯỚC render_chat_interface để chatbot nằm bên dưới.
-    """
+    """Vẽ candlestick full-width với sub-chart volume."""
 
-    # Bộ chọn khung thời gian
     _, tf_col = st.columns([0.65, 0.35])
     with tf_col:
         period_map = {
             "1 tháng": "1mo", "3 tháng": "3mo", "6 tháng": "6mo",
-            "1 năm": "1y",    "2 năm":   "2y",  "5 năm":   "5y",
+            "1 năm":   "1y",  "2 năm":   "2y",  "5 năm":   "5y",
         }
         period_label = st.selectbox(
             "Khung thời gian:", list(period_map.keys()),
@@ -65,28 +59,22 @@ def render_chart(ticker: str, exchange: str = "HOSE", region: str = "VN"):
         df = _fetch_chart_data(ticker, region=region, period=period)
 
     if df is None or df.empty:
-        st.warning(
-            f"⚠️ Không có dữ liệu biểu đồ cho **{ticker}**. "
-            "Yahoo Finance có thể đang giới hạn — thử lại sau 30 giây."
-        )
+        st.warning(f"⚠️ Không có dữ liệu biểu đồ cho **{ticker}**. Thử lại sau 30 giây.")
         return
 
-    # Chuẩn hoá MultiIndex columns nếu có
+    # Chuẩn hoá columns
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = [col[0] for col in df.columns]
     df.columns = [c.capitalize() for c in df.columns]
 
-    # Tính SMA
     df['SMA20'] = df['Close'].rolling(20).mean()
     df['SMA50'] = df['Close'].rolling(50).mean()
 
-    # Layout 2 hàng: chart 78% + volume 22%
     fig = make_subplots(
         rows=2, cols=1, shared_xaxes=True,
         vertical_spacing=0.03, row_heights=[0.78, 0.22]
     )
 
-    # Candlestick
     fig.add_trace(go.Candlestick(
         x=df.index,
         open=df['Open'], high=df['High'],
@@ -96,17 +84,16 @@ def render_chart(ticker: str, exchange: str = "HOSE", region: str = "VN"):
         increasing_fillcolor='#26a69a',  decreasing_fillcolor='#ef5350',
     ), row=1, col=1)
 
-    # SMA lines
     fig.add_trace(go.Scatter(
         x=df.index, y=df['SMA20'], name='SMA 20',
         mode='lines', line=dict(color='#F4A261', width=1.3)
     ), row=1, col=1)
+
     fig.add_trace(go.Scatter(
         x=df.index, y=df['SMA50'], name='SMA 50',
         mode='lines', line=dict(color='#4FC3F7', width=1.3)
     ), row=1, col=1)
 
-    # Volume bars (màu theo nến tăng/giảm)
     vol_colors = [
         '#26a69a' if row['Close'] >= row['Open'] else '#ef5350'
         for _, row in df.iterrows()
@@ -116,7 +103,6 @@ def render_chart(ticker: str, exchange: str = "HOSE", region: str = "VN"):
         marker_color=vol_colors, marker_line_width=0, opacity=0.7
     ), row=2, col=1)
 
-    # Layout
     fig.update_layout(
         height=750,
         margin=dict(l=0, r=0, t=20, b=0),
@@ -136,8 +122,17 @@ def render_chart(ticker: str, exchange: str = "HOSE", region: str = "VN"):
     fig.update_yaxes(title_text="Giá", row=1, col=1)
     fig.update_yaxes(title_text="KL",  row=2, col=1)
 
-    st.plotly_chart(fig, use_container_width=True, config={
-        'displayModeBar': True,
-        'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
-        'scrollZoom': True
-    })
+    # ✅ Fix: dùng width='stretch' thay cho use_container_width=True (Streamlit 1.54+)
+    try:
+        st.plotly_chart(fig, width='stretch', config={
+            'displayModeBar': True,
+            'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
+            'scrollZoom': True
+        })
+    except TypeError:
+        # Fallback cho Streamlit phiên bản cũ hơn vẫn dùng use_container_width
+        st.plotly_chart(fig, use_container_width=True, config={
+            'displayModeBar': True,
+            'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
+            'scrollZoom': True
+        })
