@@ -1,11 +1,12 @@
 """
 ================================================================================
-  components/chatbot_ui.py — Giao diện Chatbot AI
-  Fixes:
-  ✅ Truyền stock_data → ai_engine, không còn crash do thiếu context
-  ✅ Reset chat history khi đổi ticker/mode
-  ✅ Voice output an toàn (bắt lỗi)
-  ✅ Hỗ trợ mode "ticker" và "general"
+  components/chatbot_ui.py — v2.5
+
+  FIXES:
+  ✅ Không tự động gọi AI khi load trang (gây rate limit)
+  ✅ Chỉ gọi AI khi user bấm "Phân tích" hoặc hỏi câu hỏi
+  ✅ Cache session_state tránh gọi trùng lặp
+  ✅ Nút "🔄 Tạo phân tích" rõ ràng thay vì auto-trigger
 ================================================================================
 """
 
@@ -27,60 +28,70 @@ def render_chat_interface(
     stock_data:    dict = None,
     initial_query: str  = "",
 ):
-    """
-    Giao diện chat AI — luôn được gọi SAU render_chart() nên nằm bên dưới.
+    session_key  = f"chat_{ticker}_{mode}_{initial_query[:20]}"
+    history_key  = f"history_{session_key}"
+    analyzed_key = f"analyzed_{session_key}"
 
-    Args:
-        ticker:        Mã cổ phiếu hoặc "Thị trường"
-        lang:          Ngôn ngữ phản hồi
-        model:         Tên model Gemini
-        mode:          "ticker" | "general"
-        stock_data:    Dict dữ liệu thực (từ data_fetcher) — quan trọng!
-        initial_query: Câu hỏi ban đầu cho mode general
-    """
+    # Reset khi đổi ticker/context
+    if st.session_state.get("_last_chat_key") != session_key:
+        st.session_state["_last_chat_key"] = session_key
+        st.session_state[history_key]      = []
+        st.session_state[analyzed_key]     = False
 
-    session_key = f"chat_{ticker}_{mode}_{initial_query[:30]}"
+    history = st.session_state.get(history_key, [])
 
-    # Reset lịch sử khi đổi context
-    if st.session_state.get("_chat_key") != session_key:
-        st.session_state["_chat_key"]    = session_key
-        st.session_state["chat_history"] = []
-
-        with st.spinner("🤖 AI đang soạn phân tích ban đầu..."):
-            first_reply = get_ai_analysis(
-                ticker=ticker, lang=lang, model_name=model,
-                mode=mode, stock_data=stock_data,
-                initial_query=initial_query, context=""
+    # ── Nút kích hoạt phân tích lần đầu (tránh auto-call gây rate limit) ────
+    if not st.session_state.get(analyzed_key):
+        col_btn, col_info = st.columns([0.35, 0.65])
+        with col_btn:
+            do_analyze = st.button(
+                "🤖 Tạo phân tích AI",
+                key=f"btn_analyze_{session_key}",
+                use_container_width=True,
+                type="primary",
             )
-        st.session_state["chat_history"].append(
-            {"role": "assistant", "content": first_reply}
-        )
+        with col_info:
+            st.caption(
+                "💡 **Lưu ý Free Tier:** Dùng **Flash** (sidebar) để tránh Rate Limit. "
+                "Pro chỉ có ~2 requests/phút."
+            )
 
-    # Hiển thị lịch sử
-    chat_box = st.container(height=480, border=True)
+        if do_analyze:
+            with st.spinner("🤖 AI đang phân tích..."):
+                first_reply = get_ai_analysis(
+                    ticker=ticker, lang=lang, model_name=model,
+                    mode=mode, stock_data=stock_data,
+                    initial_query=initial_query, context="",
+                )
+            history.append({"role": "assistant", "content": first_reply})
+            st.session_state[history_key]  = history
+            st.session_state[analyzed_key] = True
+            st.rerun()
+        return  # Chưa phân tích → dừng ở đây
+
+    # ── Hiển thị lịch sử chat ────────────────────────────────────────────────
+    chat_box = st.container(height=500, border=True)
     with chat_box:
-        for msg in st.session_state["chat_history"]:
+        for msg in history:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
 
-    # Input box
+    # ── Input hỏi thêm ───────────────────────────────────────────────────────
     if VOICE_ENABLED:
-        col_t, col_v = st.columns([0.85, 0.15])
+        col_t, col_v = st.columns([0.87, 0.13])
         with col_t:
-            user_text = st.chat_input("💬 Hỏi thêm AI...", key=f"ci_{ticker}")
+            user_text = st.chat_input("💬 Hỏi thêm về cổ phiếu này...", key=f"ci_{session_key}")
         with col_v:
-            st.markdown("<div style='padding-top:8px'>", unsafe_allow_html=True)
             user_audio = speech_to_text(
                 language='vi-VN', start_prompt="🎙️", stop_prompt="⏹️",
-                key=f'mic_{ticker}'
+                key=f'mic_{session_key}'
             )
-            st.markdown("</div>", unsafe_allow_html=True)
         prompt = user_text or user_audio
     else:
-        prompt = st.chat_input("💬 Hỏi thêm AI...", key=f"ci_{ticker}")
+        prompt = st.chat_input("💬 Hỏi thêm về cổ phiếu này...", key=f"ci_{session_key}")
 
     if prompt:
-        st.session_state["chat_history"].append({"role": "user", "content": prompt})
+        history.append({"role": "user", "content": prompt})
 
         with chat_box:
             with st.chat_message("user"):
@@ -90,18 +101,17 @@ def render_chat_interface(
                     reply = get_ai_analysis(
                         ticker=ticker, lang=lang, model_name=model,
                         context=prompt, mode=mode,
-                        stock_data=stock_data, initial_query=initial_query
+                        stock_data=stock_data, initial_query=initial_query,
                     )
                 st.markdown(reply)
 
-        st.session_state["chat_history"].append({"role": "assistant", "content": reply})
+        history.append({"role": "assistant", "content": reply})
+        st.session_state[history_key] = history
 
-        # TTS (an toàn)
+        # TTS nhẹ
         try:
-            clean = (
-                reply.replace("'", " ").replace('"', ' ')
-                     .replace("\n", " ").replace("#", "").replace("*", "")[:500]
-            )
+            clean = reply.replace("'", " ").replace('"', ' ').replace("\n", " ")
+            clean = ''.join(c for c in clean if c.isalnum() or c in ' .,?!').strip()[:400]
             st.components.v1.html(
                 f"<script>var u=new SpeechSynthesisUtterance('{clean}');"
                 f"u.lang='vi-VN';window.speechSynthesis.cancel();"
