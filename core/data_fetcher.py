@@ -3,11 +3,13 @@ import requests
 import streamlit as st
 from tenacity import retry, stop_after_attempt, wait_fixed
 
-# --- TẦNG 1: TCBS ---
+# --- TẦNG 1: TCBS (Đã thêm Header giả lập trình duyệt) ---
 def get_fundamentals_tcbs(ticker):
     url = f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{ticker}/overview"
-    # Thêm Header giả lập trình duyệt để TCBS không chặn trả về số 0
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'application/json'
+    }
     res = requests.get(url, headers=headers, timeout=5)
     
     if res.status_code == 200:
@@ -21,7 +23,7 @@ def get_fundamentals_tcbs(ticker):
             "market": data.get("exchange", "HOSE").replace("HSX", "HOSE"),
             "source": "TCBS API"
         }
-    raise Exception("TCBS lỗi")
+    raise Exception("TCBS lỗi bảo mật")
 
 # --- TẦNG 2: VNDIRECT ---
 def get_fundamentals_vndirect(ticker):
@@ -47,13 +49,11 @@ def get_fundamentals_vndirect(ticker):
 @retry(stop=stop_after_attempt(2), wait=wait_fixed(1))
 def get_stock_data(ticker):
     try:
-        # Lấy Giá từ Yahoo
         stock = yf.Ticker(f"{ticker}.VN")
         df = stock.history(period="1d")
         if df.empty: return {"error": f"Không tìm thấy dữ liệu mã {ticker}"}
         price, volume = round(df['Close'].iloc[-1], 0), int(df['Volume'].iloc[-1])
 
-        # Lấy P/E, P/B từ TCBS -> VNDirect -> Yahoo
         fund_data = {}
         try:
             fund_data = get_fundamentals_tcbs(ticker)
