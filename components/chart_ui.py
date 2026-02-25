@@ -1,59 +1,37 @@
 import streamlit as st
-import yfinance as yf
-from streamlit_lightweight_charts import renderLightweightCharts
+import streamlit.components.v1 as components
 
 def render_tradingview_chart(ticker, exchange="HOSE"):
-    # Giải pháp dứt điểm: Dùng Lightweight Charts tự vẽ để không bao giờ bị dính bản quyền TradingView
-    try:
-        stock = yf.Ticker(f"{ticker}.VN")
-        df = stock.history(period="1y")
+    # BỘ LỌC ÉP SÀN: Ngăn chặn lỗi Popup TradingView khi Yahoo trả về mã sàn lạ (VSE)
+    exch_upper = str(exchange).upper()
+    if exch_upper not in ["HOSE", "HNX", "UPCOM"]:
+        exch_upper = "HOSE"
         
-        if df.empty:
-            st.warning(f"Không có dữ liệu biểu đồ cho mã {ticker}")
-            return
-
-        # Chuyển đổi dữ liệu ngày tháng
-        df = df.reset_index()
-        candles = []
-        for _, row in df.iterrows():
-            candles.append({
-                "time": row['Date'].strftime('%Y-%m-%d'),
-                "open": float(row['Open']),
-                "high": float(row['High']),
-                "low": float(row['Low']),
-                "close": float(row['Close'])
-            })
-
-        # Cấu hình giao diện biểu đồ (Theme tối chuyên nghiệp)
-        chartOptions = {
-            "height": 550,
-            "layout": {
-                "textColor": 'rgba(255, 255, 255, 0.9)',
-                "background": {"type": 'solid', "color": '#121212'}
-            },
-            "grid": {
-                "vertLines": {"color": 'rgba(197, 203, 206, 0.1)'},
-                "horzLines": {"color": 'rgba(197, 203, 206, 0.1)'}
-            },
-            "crosshair": {"mode": 1},
-            "timeScale": {"borderColor": 'rgba(197, 203, 206, 0.8)', "timeVisible": True}
-        }
-
-        seriesCandleChart = [{
-            "type": 'Candlestick',
-            "data": candles,
-            "options": {
-                "upColor": '#26a69a',
-                "downColor": '#ef5350',
-                "borderVisible": False,
-                "wickUpColor": '#26a69a',
-                "wickDownColor": '#ef5350'
-            }
-        }]
-
-        renderLightweightCharts([
-            {"chart": chartOptions, "series": seriesCandleChart}
-        ], f'chart_{ticker}')
-
-    except Exception as e:
-        st.error(f"Lỗi vẽ biểu đồ: {e}")
+    tv_symbol = f"{exch_upper}:{ticker}"
+    
+    html_code = f"""
+    <div class="tradingview-widget-container" style="height:100%;width:100%">
+      <div id="tv_{ticker}" style="height:calc(100% - 32px);width:100%"></div>
+      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+      <script type="text/javascript">
+      new TradingView.widget({{
+      "autosize": true,
+      "symbol": "{tv_symbol}",
+      "interval": "D",
+      "timezone": "Asia/Ho_Chi_Minh",
+      "theme": "dark",
+      "style": "1",
+      "locale": "vi_VN",
+      "enable_publishing": false,
+      "backgroundColor": "#121212",
+      "gridColor": "#1f1f1f",
+      "hide_top_toolbar": false,
+      "hide_legend": false,
+      "save_image": false,
+      "container_id": "tv_{ticker}"
+      }});
+      </script>
+    </div>
+    """
+    # Chiều cao 700px để bạn thoải mái dùng các công cụ phân tích kỹ thuật
+    components.html(html_code, height=700)
