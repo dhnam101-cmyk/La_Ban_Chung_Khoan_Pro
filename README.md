@@ -1,36 +1,73 @@
-# 📈 La Bàn Chứng Khoán Pro AI
+# 📈 La Bàn Chứng Khoán AI Pro — v2.0
 
-**Hệ thống phân tích chứng khoán thông minh tích hợp dữ liệu thời gian thực và Trí tuệ nhân tạo (Google Gemini).**
-
----
-
-## 🚀 Tính năng nổi bật
-
-* [cite_start]**Dữ liệu Real-time 100%**: Truy xuất giá khớp lệnh và khối lượng giao dịch tức thời từ các nguồn uy tín[cite: 4, 7].
-* [cite_start]**Biểu đồ TradingView Chuyên nghiệp**: Tích hợp biểu đồ nến và khối lượng đa tầng, hỗ trợ đầy đủ các công cụ vẽ phân tích kỹ thuật (VSA)[cite: 8].
-* [cite_start]**Phân tích AI Đa nguồn**: Sử dụng mô hình **Gemini 1.5 Flash** để tổng hợp vĩ mô và đưa ra khuyến nghị đầu tư sắc bén.
-* [cite_start]**Kiến trúc Chống sập (Anti-Crash)**: Hệ thống dự phòng đa lớp đảm bảo dữ liệu luôn hiển thị ngay cả khi nguồn chính gặp sự cố[cite: 7].
+Hệ thống phân tích chứng khoán thông minh tích hợp dữ liệu thời gian thực và Google Gemini AI.
 
 ---
 
-## 🛠 Kiến trúc Hệ thống (Modular Design)
+## 🆕 Thay đổi trong v2.0
 
-Dự án được xây dựng theo cấu trúc mô-đun hóa để đảm bảo khả năng mở rộng và dễ dàng bảo trì:
-
-* [cite_start]📂 `ai_core/`: Quản lý bộ não AI và các kịch bản dự phòng (Fallback).
-* [cite_start]📂 `components/`: Xử lý hiển thị giao diện biểu đồ TradingView[cite: 8].
-* [cite_start]📂 `data/`: Trạm xử lý dữ liệu, API và cơ chế Caching bảo vệ hệ thống[cite: 4, 7].
-* [cite_start]📄 `app.py`: Trung tâm điều phối và giao diện người dùng Streamlit[cite: 1].
+| Vấn đề (v1) | Giải pháp (v2) |
+|---|---|
+| `YFRateLimitError` làm sập app | Retry logic 3 lần + thông báo thân thiện |
+| "Quote not found" khi nhập câu hỏi | Smart Routing phân biệt ticker vs câu hỏi |
+| AI crash do không có dữ liệu | Truyền `stock_data` dict vào prompt |
+| Biểu đồ nhỏ, metrics to | Chart 750px, metrics thu gọn 7 cột |
+| Chatbot nằm lẫn với chart | Chatbot luôn render bên dưới chart |
 
 ---
 
-## ⚙️ Hướng dẫn Cài đặt & Sử dụng
+## 🚀 Tính năng
 
-### 1. Yêu cầu hệ thống
-Các thư viện cần thiết đã được liệt kê chi tiết trong tệp `requirements.txt`, bao gồm:
-[cite_start]`streamlit`, `pandas`, `google-generativeai`, `tenacity`,... [cite: 1, 2, 7, 9]
+- **Dữ liệu Real-time**: Giá, khối lượng từ Yahoo Finance + cơ bản từ TCBS
+- **Smart Routing**: Tự động phân biệt mã cổ phiếu vs câu hỏi thị trường
+- **Biểu đồ Nến Full-size**: Candlestick + SMA 20/50 + Volume sub-chart
+- **Đa khu vực**: Việt Nam (VN), Mỹ (US), Quốc tế
+- **Chatbot AI**: Gemini 2.0 Flash/Pro với context dữ liệu thực tế
+- **Voice Input/Output**: Tìm kiếm và nghe phân tích bằng giọng nói
 
-### 2. Cấu hình bảo mật (Secrets)
-Để hệ thống AI hoạt động, bạn cần cấu hình khóa API trong mục **Settings > Secrets** của Streamlit:
+---
+
+## 🛠 Cài đặt
+
+```bash
+pip install -r requirements.txt
+```
+
+### Cấu hình API Key
+
+Tạo file `.streamlit/secrets.toml`:
 ```toml
-GOOGLE_API_KEY = "Mã_API_Của_Bạn"
+GOOGLE_API_KEY = "your_gemini_api_key"
+```
+
+> Lấy key miễn phí: https://aistudio.google.com/
+
+### Chạy ứng dụng
+
+```bash
+streamlit run app.py
+```
+
+---
+
+## 📁 Cấu trúc File
+
+```
+├── app.py              # Entry point, Smart Routing, UI layout
+├── data_fetcher.py     # Lấy dữ liệu (yfinance + TCBS), có retry
+├── chart_ui.py         # Biểu đồ Plotly full-size
+├── chatbot_ui.py       # Giao diện chat AI
+├── ai_engine.py        # Tích hợp Google Gemini
+├── requirements.txt
+└── locales/
+    ├── vi.json         # Tiếng Việt
+    └── en.json         # English
+```
+
+---
+
+## ⚠️ Lưu ý
+
+- Đây là công cụ phân tích tham khảo, **không phải lời khuyên đầu tư chính thức**
+- Dữ liệu Yahoo Finance có thể bị rate-limit — hãy đợi 30s nếu gặp lỗi
+- Gemini Free Tier có giới hạn 15 requests/phút
