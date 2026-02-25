@@ -4,18 +4,16 @@ import streamlit as st
 from tenacity import retry, stop_after_attempt, wait_fixed
 import urllib3
 
-# Tắt cảnh báo bảo mật khi lách tường lửa
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def get_fundamentals_tcbs(ticker):
     url = f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{ticker}/overview"
-    # Header cực mạnh để giả dạng trình duyệt
+    # Giả dạng trình duyệt xịn
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Origin': 'https://tcinvest.tcbs.com.vn'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'application/json'
     }
-    # verify=False giúp vượt qua lỗi chứng chỉ SSL trên server Streamlit
+    # verify=False giúp vượt lỗi bảo mật đám mây
     res = requests.get(url, headers=headers, timeout=5, verify=False)
     
     if res.status_code == 200:
@@ -34,17 +32,14 @@ def get_fundamentals_tcbs(ticker):
 @retry(stop=stop_after_attempt(2), wait=wait_fixed(1))
 def get_stock_data(ticker):
     try:
-        # 1. Lấy giá từ Yahoo (Chắc chắn thành công)
         stock = yf.Ticker(f"{ticker}.VN")
         df = stock.history(period="1d")
         if df.empty: return {"error": f"Không tìm thấy mã {ticker}"}
         price, volume = round(df['Close'].iloc[-1], 0), int(df['Volume'].iloc[-1])
 
-        # 2. Lấy cơ bản từ TCBS
         try:
             fund_data = get_fundamentals_tcbs(ticker)
         except Exception:
-            # Dự phòng khẩn cấp nếu bị chặn hoàn toàn
             info = stock.info
             fund_data = {
                 "pe": round(info.get('trailingPE', 0), 2) if info.get('trailingPE') else "N/A",
