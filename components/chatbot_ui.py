@@ -1,11 +1,11 @@
 """
 chatbot_ui.py — v4.0 FLAT STRUCTURE
-- Import flat: from ai_engine import ...
+- Import flat: from core.ai_engine import ...
 - Nút "🤖 Phân tích ngay" để user chủ động (tránh rate limit auto-spam)
 - Nút "🔄 Thử lại" khi rate limit
 """
 import streamlit as st
-from ai_engine import get_ai_analysis
+from core.ai_engine import get_ai_analysis
 
 try:
     from streamlit_mic_recorder import speech_to_text
