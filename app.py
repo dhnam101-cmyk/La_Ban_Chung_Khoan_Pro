@@ -33,7 +33,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 if "language" not in st.session_state: st.session_state["language"] = "vi"
-# CHÚ Ý: Google đã chuyển sang bản 2.0
 if "selected_model" not in st.session_state: st.session_state["selected_model"] = "gemini-2.0-flash"
 
 loc = load_locales(st.session_state["language"])
@@ -51,8 +50,8 @@ with st.sidebar:
     st.divider()
     st.subheader(loc.get("ai_config", "🤖 Cấu hình AI"))
     
-    # CẬP NHẬT MODEL LÊN BẢN 2.0 MỚI NHẤT CỦA GOOGLE ĐỂ KHÔNG LỖI 404
-    model_map = {"Gemini 2.0 Flash (Mới)": "gemini-2.0-flash", "Gemini 2.0 Pro (Sâu)": "gemini-2.0-pro-exp"}
+    # DÙNG BẢN GEMINI 2.0 MỚI NHẤT
+    model_map = {"Gemini 2.0 Flash (Nhanh)": "gemini-2.0-flash", "Gemini 2.0 Pro (Sâu)": "gemini-2.0-pro-exp-02-05"}
     sel_model = st.selectbox(loc.get("model_select", "Chọn Model:"), options=list(model_map.keys()))
     st.session_state["selected_model"] = model_map[sel_model]
 
