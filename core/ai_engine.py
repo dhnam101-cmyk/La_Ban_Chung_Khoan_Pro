@@ -1,48 +1,38 @@
 import streamlit as st
-import google.generativeai as genai
+from google import genai
 from tenacity import retry, stop_after_attempt, wait_exponential
-import warnings
 
-warnings.filterwarnings("ignore")
-
-def setup_gemini(model_name):
+def ask_ai_primary(ticker, language, model_name, context=""):
     if "GOOGLE_API_KEY" not in st.secrets:
         raise ValueError("LỖI_KEY")
     
-    api_key = st.secrets["GOOGLE_API_KEY"]
-    genai.configure(api_key=api_key)
+    # Sử dụng thư viện SDK mới nhất của Google
+    client = genai.Client(api_key=st.secrets["GOOGLE_API_KEY"])
     
-    # Tự động gán "-latest" để chống lỗi 404 Not Found của Google
-    if "-latest" not in model_name:
-        model_name = f"{model_name}-latest"
-        
-    return genai.GenerativeModel(model_name)
-
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-def ask_ai_primary(ticker, language, model_name, context=""):
-    model = setup_gemini(model_name)
-
+    # Prompt chuẩn
     base_prompt = f"""
-    Bạn là Giám đốc Phân tích Chiến lược tại một quỹ đầu tư.
+    Bạn là Giám đốc Phân tích Chiến lược tại quỹ đầu tư.
     Phân tích mã/thị trường: {ticker}
-    Ngôn ngữ trả lời: {language}
-    Đánh giá định giá (P/E, P/B), dòng tiền, vĩ mô và đưa ra khuyến nghị. Trình bày bằng Markdown.
+    Ngôn ngữ: {language}
+    Yêu cầu: Đánh giá định giá (P/E, P/B), dòng tiền, vĩ mô và đưa ra khuyến nghị. Trình bày bằng Markdown.
     """
+    final_prompt = f"{base_prompt}\n\nNgười dùng hỏi: {context}" if context else base_prompt
     
-    final_prompt = f"{base_prompt}\n\nNgười dùng hỏi thêm: {context}" if context else base_prompt
-    response = model.generate_content(final_prompt)
-    return f"**[🤖 CHUYÊN GIA AI]**\n\n{response.text}"
+    # Gọi model
+    response = client.models.generate_content(
+        model=model_name,
+        contents=final_prompt
+    )
+    return f"**[🤖 AI - {model_name}]**\n\n{response.text}"
 
-def get_ai_analysis(ticker, language="Tiếng Việt", model_name="gemini-1.5-flash-latest", context=""):
+def get_ai_analysis(ticker, language="Tiếng Việt", model_name="gemini-2.0-flash", context=""):
     try:
         return ask_ai_primary(ticker, language, model_name, context)
     except Exception as e:
         error_msg = str(e)
         if "LỖI_KEY" in error_msg:
-            return "❌ **Chưa điền API Key** trong phần Secrets."
-        elif "429" in error_msg or "Rate limited" in error_msg or "quota" in error_msg.lower():
-            return "⏳ **Google báo AI đang bận (Rate Limit).** Vui lòng đợi 1 phút rồi nhấn tìm kiếm lại."
-        elif "404" in error_msg:
-            return f"❌ **Lỗi Google AI:** Không tìm thấy model {model_name}. Google đã thay đổi tên server."
+            return "❌ **Chưa cấu hình API Key** trong Streamlit Secrets."
+        elif "429" in error_msg or "quota" in error_msg.lower():
+            return "⏳ **Hệ thống AI đang quá tải.** Vui lòng đợi 30 giây rồi thử lại."
         else:
             return f"⚠️ **Lỗi AI:** {error_msg}"
