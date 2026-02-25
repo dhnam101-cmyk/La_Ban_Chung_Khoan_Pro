@@ -6,7 +6,7 @@ beautifulsoup4
 urllib3
 tenacity
 yfinance
-google-generativeai
+google-genai
+plotly
 streamlit-mic-recorder
-streamlit-lightweight-charts
 python-dotenv
