@@ -3,13 +3,11 @@ import requests
 import streamlit as st
 from tenacity import retry, stop_after_attempt, wait_fixed
 
-# --- TẦNG 1: TCBS (Đã thêm Header giả lập trình duyệt) ---
+# --- TẦNG 1: TCBS ---
 def get_fundamentals_tcbs(ticker):
     url = f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{ticker}/overview"
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'application/json'
-    }
+    # Giả lập trình duyệt để vượt tường lửa TCBS, tránh bị trả về P/E = 0
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
     res = requests.get(url, headers=headers, timeout=5)
     
     if res.status_code == 200:
@@ -23,7 +21,7 @@ def get_fundamentals_tcbs(ticker):
             "market": data.get("exchange", "HOSE").replace("HSX", "HOSE"),
             "source": "TCBS API"
         }
-    raise Exception("TCBS lỗi bảo mật")
+    raise Exception("TCBS lỗi")
 
 # --- TẦNG 2: VNDIRECT ---
 def get_fundamentals_vndirect(ticker):
@@ -44,7 +42,7 @@ def get_fundamentals_vndirect(ticker):
         }
     raise Exception("VNDirect lỗi")
 
-# --- TRUNG TÂM ĐIỀU PHỐI ---
+# --- TRUNG TÂM ĐIỀU PHỐI ĐA NGUỒN ---
 @st.cache_data(ttl=300, show_spinner=False)
 @retry(stop=stop_after_attempt(2), wait=wait_fixed(1))
 def get_stock_data(ticker):
