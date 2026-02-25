@@ -4,13 +4,13 @@ import plotly.graph_objects as go
 
 def render_tradingview_chart(ticker, exchange="HOSE"):
     try:
-        # Lấy dữ liệu 1 năm từ Yahoo
+        # Tải dữ liệu 1 năm
         df = yf.download(f"{ticker}.VN", period="1y", progress=False)
         if df.empty:
             st.warning(f"Không có dữ liệu biểu đồ cho {ticker}")
             return
 
-        # Vẽ biểu đồ Nến (Candlestick) bằng Plotly
+        # Vẽ biểu đồ Nến (Candlestick)
         fig = go.Figure(data=[go.Candlestick(
             x=df.index,
             open=df['Open'].squeeze(),
@@ -20,7 +20,7 @@ def render_tradingview_chart(ticker, exchange="HOSE"):
             increasing_line_color='#26a69a', decreasing_line_color='#ef5350'
         )])
 
-        # Tùy chỉnh kích thước SIÊU TO (Height = 700) và giao diện Dark Mode
+        # Tùy chỉnh kích thước to (700px) và giao diện Dark Mode
         fig.update_layout(
             height=700, 
             margin=dict(l=0, r=0, t=10, b=0),
@@ -32,7 +32,6 @@ def render_tradingview_chart(ticker, exchange="HOSE"):
             yaxis=dict(showgrid=True, gridcolor='#333333', side='right')
         )
         
-        # Hiển thị biểu đồ full chiều rộng
         st.plotly_chart(fig, use_container_width=True)
 
     except Exception as e:
