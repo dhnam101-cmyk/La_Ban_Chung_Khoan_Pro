@@ -25,7 +25,7 @@ def load_locales(lang_code):
 
 st.set_page_config(page_title="La Bàn Chứng Khoán Pro", page_icon="📈", layout="wide")
 
-# Thu nhỏ size hiển thị P/E, Giá...
+# Thu nhỏ P/E, Giá
 st.markdown("""
 <style>
     [data-testid="stMetricValue"] { font-size: 1.5rem !important; }
@@ -38,7 +38,7 @@ if "selected_model" not in st.session_state: st.session_state["selected_model"] 
 
 loc = load_locales(st.session_state["language"])
 
-# SIDEBAR (THỊ TRƯỜNG, NGÔN NGỮ, MODEL)
+# SIDEBAR 
 with st.sidebar:
     st.title(loc.get("sidebar_title", "⚙️ Cài đặt Hệ thống"))
     lang_display = st.selectbox(loc.get("lang_select", "🌐 Ngôn ngữ:"), ["Tiếng Việt (vi)", "English (en)"])
@@ -51,14 +51,13 @@ with st.sidebar:
     st.session_state["market_filter"] = st.radio("Chọn sàn giao dịch:", ["Tất cả", "HOSE", "HNX", "UPCOM"])
     st.divider()
     st.subheader(loc.get("ai_config", "🤖 Cấu hình AI"))
-    # ĐÃ SỬA LỖI 404 BẰNG CÁCH THÊM CHỮ LATEST VÀO TÊN MODEL
     model_map = {"Gemini 1.5 Flash (Nhanh)": "gemini-1.5-flash-latest", "Gemini 1.5 Pro (Sâu)": "gemini-1.5-pro-latest"}
     sel_model = st.selectbox(loc.get("model_select", "Chọn Model:"), options=list(model_map.keys()))
     st.session_state["selected_model"] = model_map[sel_model]
 
 st.title(loc.get("title", "📈 La Bàn Chứng Khoán AI Pro"))
 
-# TÌM KIẾM (MÃ & GIỌNG NÓI & ENTER)
+# KHUNG TÌM KIẾM BẰNG PHÍM ENTER HOẶC MIC
 with st.form(key="search_form"):
     col_input, col_btn = st.columns([0.85, 0.15])
     with col_input:
@@ -72,7 +71,7 @@ voice_input = speech_to_text(language='vi-VN', start_prompt="Bấm để nói", 
 
 user_input = form_input if form_input else voice_input
 
-# ĐỊNH TUYẾN THÔNG MINH
+# BỘ ĐỊNH TUYẾN
 if (submit_button or voice_input) and user_input:
     is_ticker = len(user_input.split()) == 1 and len(user_input) <= 6
     lang_prompt = "Tiếng Việt" if st.session_state["language"] == "vi" else "English"
@@ -99,7 +98,7 @@ if (submit_button or voice_input) and user_input:
                 st.divider()
                 
                 st.subheader(loc.get("chart", "📊 Biểu đồ Kỹ thuật"))
-                # Khắc phục lỗi Popup TradingView bằng cách chèn market vào
+                # Gọi hàm vẽ biểu đồ và chống lỗi popup
                 render_tradingview_chart(ticker_input, exchange=data.get('market', 'HOSE'))
                 st.divider()
 
