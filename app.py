@@ -34,7 +34,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 if "language" not in st.session_state: st.session_state["language"] = "vi"
-if "selected_model" not in st.session_state: st.session_state["selected_model"] = "gemini-1.5-flash"
+if "selected_model" not in st.session_state: st.session_state["selected_model"] = "gemini-1.5-flash-latest"
 
 loc = load_locales(st.session_state["language"])
 
@@ -51,7 +51,8 @@ with st.sidebar:
     st.session_state["market_filter"] = st.radio("Chọn sàn giao dịch:", ["Tất cả", "HOSE", "HNX", "UPCOM"])
     st.divider()
     st.subheader(loc.get("ai_config", "🤖 Cấu hình AI"))
-    model_map = {"Gemini 1.5 Flash (Nhanh)": "gemini-1.5-flash", "Gemini 1.5 Pro (Sâu)": "gemini-1.5-pro"}
+    # ĐÃ SỬA LỖI 404 BẰNG CÁCH THÊM CHỮ LATEST VÀO TÊN MODEL
+    model_map = {"Gemini 1.5 Flash (Nhanh)": "gemini-1.5-flash-latest", "Gemini 1.5 Pro (Sâu)": "gemini-1.5-pro-latest"}
     sel_model = st.selectbox(loc.get("model_select", "Chọn Model:"), options=list(model_map.keys()))
     st.session_state["selected_model"] = model_map[sel_model]
 
