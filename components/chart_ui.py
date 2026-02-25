@@ -2,8 +2,12 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 def render_tradingview_chart(ticker, exchange="HOSE"):
-    # Gắn tên Sàn vào mã để xóa lỗi popup TradingView
-    tv_symbol = f"{exchange}:{ticker}"
+    # Chuẩn hóa tên Sàn: Nếu Yahoo trả về chữ 'VSE' lạ lẫm, tự ép nó thành 'HOSE'
+    exch_upper = str(exchange).upper()
+    if exch_upper not in ["HOSE", "HNX", "UPCOM"]:
+        exch_upper = "HOSE"
+        
+    tv_symbol = f"{exch_upper}:{ticker}"
     
     html_code = f"""
     <div class="tradingview-widget-container" style="height:100%;width:100%">
@@ -29,5 +33,5 @@ def render_tradingview_chart(ticker, exchange="HOSE"):
       </script>
     </div>
     """
-    # Chiều cao đã nâng lên 700px cho cân xứng
+    # Chiều cao 700px tiêu chuẩn
     components.html(html_code, height=700)
