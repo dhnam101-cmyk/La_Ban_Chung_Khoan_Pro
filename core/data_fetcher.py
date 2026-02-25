@@ -6,7 +6,10 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 # --- TẦNG 1: TCBS ---
 def get_fundamentals_tcbs(ticker):
     url = f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{ticker}/overview"
-    res = requests.get(url, timeout=5)
+    # Thêm Header giả lập trình duyệt để TCBS không chặn trả về số 0
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    res = requests.get(url, headers=headers, timeout=5)
+    
     if res.status_code == 200:
         data = res.json()
         return {
