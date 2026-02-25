@@ -3,31 +3,26 @@ import google.generativeai as genai
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 # ==========================================
-# CẤU HÌNH KẾT NỐI GEMINI
+# 1. CẤU HÌNH KẾT NỐI GEMINI
 # ==========================================
 def setup_gemini(model_name):
-    try:
-        # Lấy chìa khóa từ "két sắt" Secrets của Streamlit
-        api_key = st.secrets["GOOGLE_API_KEY"]
-        genai.configure(api_key=api_key)
-        # Khởi tạo model dựa trên lựa chọn của người dùng
-        model = genai.GenerativeModel(model_name)
-        return model
-    except Exception as e:
-        st.error(f"Lỗi cấu hình API Gemini: {e}")
-        return None
+    if "GOOGLE_API_KEY" not in st.secrets:
+        raise ValueError("LỖI_THIẾU_KEY")
+    
+    # Lấy chìa khóa từ Secrets của Streamlit
+    api_key = st.secrets["GOOGLE_API_KEY"]
+    genai.configure(api_key=api_key)
+    return genai.GenerativeModel(model_name)
 
 # ==========================================
-# CƠ CHẾ 1: GỌI MODEL AI CHÍNH (LINH HOẠT MODEL)
+# 2. CƠ CHẾ GỌI AI CHÍNH (CÓ TỰ ĐỘNG THỬ LẠI KHI MẠNG LAG)
 # ==========================================
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-def ask_ai_primary(ticker, language, model_name):
+def ask_ai_primary(ticker, language, model_name, context=""):
     model = setup_gemini(model_name)
-    if not model:
-        raise Exception("Không thể kết nối Gemini")
 
-    # System Prompt chuyên gia tài chính
-    prompt = f"""
+    # System Prompt chuyên gia tài chính (Đã giữ nguyên bản xịn của bạn)
+    base_prompt = f"""
     Bạn là một Giám đốc Phân tích Chiến lược tại một quỹ đầu tư lớn.
     Hãy phân tích mã cổ phiếu: {ticker}
     Ngôn ngữ trả lời: {language}
@@ -42,24 +37,27 @@ def ask_ai_primary(ticker, language, model_name):
     PHONG CÁCH: Chuyên nghiệp, súc tích, trình bày Markdown đẹp mắt với các icon.
     """
     
-    response = model.generate_content(prompt)
+    # Nối thêm câu hỏi của người dùng nếu có (từ Chat/Mic)
+    final_prompt = f"{base_prompt}\n\nNgười dùng hỏi thêm: {context}" if context else base_prompt
+    
+    response = model.generate_content(final_prompt)
     return f"**[🤖 CHUYÊN GIA AI - {model_name.upper()}]**\n\n{response.text}"
 
 # ==========================================
-# CƠ CHẾ 2 & 3: DỰ PHÒNG & ĐIỀU PHỐI
+# 3. TRUNG TÂM ĐIỀU PHỐI & BÁO LỖI THÔNG MINH
 # ==========================================
-def ask_ai_fallback(ticker, language):
-    if language == "Tiếng Việt":
-        return f"⚠️ *Hệ thống AI đang bận hoặc lỗi cấu hình. Mã **{ticker}** hiện đang ở vùng theo dõi. Vui lòng kiểm tra API Key.*"
-    else:
-        return f"⚠️ *AI System busy. Ticker **{ticker}** is under observation. Check API Key.*"
-
-def get_ai_analysis(ticker, language="Tiếng Việt", model_name="gemini-1.5-flash"):
-    """
-    Hàm nhận thêm tham số model_name để linh hoạt theo người dùng.
-    """
+def get_ai_analysis(ticker, language="Tiếng Việt", model_name="gemini-1.5-flash", context=""):
     try:
-        return ask_ai_primary(ticker, language, model_name)
+        return ask_ai_primary(ticker, language, model_name, context)
     except Exception as e:
-        print(f"Lỗi AI ({model_name}): {e}")
-        return ask_ai_fallback(ticker, language)
+        error_msg = str(e)
+        
+        # Phân loại lỗi để báo đúng bệnh cho người dùng
+        if "LỖI_THIẾU_KEY" in error_msg:
+            return "❌ **LỖI:** Chưa cài đặt GOOGLE_API_KEY trong phần Settings > Secrets của Streamlit."
+        elif "429" in error_msg or "Rate limited" in error_msg or "Too Many Requests" in error_msg:
+            return f"⏳ **Google báo API đang quá tải (Rate Limit).**\n\nBạn đang dùng bản miễn phí nên bị giới hạn số lần hỏi liên tục. Vui lòng đợi khoảng 1 phút rồi nhấn nút Phân tích lại nhé!"
+        elif "API_KEY_INVALID" in error_msg:
+            return "❌ **Lỗi API Key không hợp lệ.** Vui lòng kiểm tra lại xem copy key có bị dư dấu cách không."
+        else:
+            return f"⚠️ **Lỗi kết nối AI:** {error_msg}\n\n*Hệ thống đang tự động theo dõi mã {ticker}.*"
