@@ -1,17 +1,18 @@
 """
-core/ai_engine.py — v7.0
+core/ai_engine.py — v8.0
+Đã nâng cấp lên thư viện google.genai mới nhất.
 Hướng dẫn rõ cách cập nhật API key mới vào Streamlit Secrets.
 Auto-retry 1 lần sau 35s khi rate limit.
 """
 import streamlit as st
 import time
 
-_SDK = None
+HAS_GENAI = False
 try:
-    import google.generativeai as _g
-    if hasattr(_g, "GenerativeModel"):
-        _SDK = _g
-except:
+    from google import genai
+    from google.genai import types
+    HAS_GENAI = True
+except ImportError:
     pass
 
 
@@ -119,37 +120,47 @@ def _build_general_prompt(query, lang):
 
 
 def _call(api_key, model_name, prompt, use_search=True):
-    _SDK.configure(api_key=api_key)
-    model = None
+    client = genai.Client(api_key=api_key)
+    
+    config = None
     if use_search:
         try:
-            tool  = _SDK.protos.Tool(google_search_retrieval=_SDK.protos.GoogleSearchRetrieval())
-            model = _SDK.GenerativeModel(model_name, tools=[tool])
+            # Khởi tạo công cụ Google Search cho genai SDK mới
+            google_search_tool = types.Tool(
+                google_search=types.GoogleSearch()
+            )
+            config = types.GenerateContentConfig(
+                tools=[google_search_tool]
+            )
         except:
             use_search = False
-    if model is None:
-        model = _SDK.GenerativeModel(model_name)
 
-    response = model.generate_content(prompt)
+    if config:
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=config
+        )
+    else:
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt
+        )
+
     text = ""
     if hasattr(response, "text") and response.text:
         text = response.text
-    else:
-        for cand in getattr(response, "candidates", []):
-            parts = getattr(getattr(cand, "content", None), "parts", [])
-            texts = [p.text for p in parts if getattr(p, "text", None)]
-            if texts:
-                text = "\n".join(texts)
-                break
+
     if not text or len(text.strip()) < 10:
         raise Exception(f"Response rỗng: {str(response)[:100]}")
+        
     return text, use_search
 
 
 def get_ai_analysis(ticker, lang="Tiếng Việt", model_name="gemini-2.0-flash",
                     context="", mode="ticker", stock_data=None, initial_query=""):
-    if _SDK is None:
-        return "❌ **Thiếu `google-generativeai`** trong `requirements.txt`"
+    if not HAS_GENAI:
+        return "❌ **Thiếu `google-genai`** trong `requirements.txt`. Vui lòng cập nhật thư viện."
 
     # Lấy API key từ Secrets
     api_key = None
@@ -167,13 +178,12 @@ def get_ai_analysis(ticker, lang="Tiếng Việt", model_name="gemini-2.0-flash"
 1. Vào trang app Streamlit → **⋮ (3 chấm)** → **Settings**
 2. Chọn tab **Secrets**
 3. Thêm / sửa:
-```toml
 GOOGLE_API_KEY = "AIzaSy...key_mới_của_bạn..."
-```
+
 4. Nhấn **Save** → App tự **Reboot**
 5. Sau khi reboot xong → thử lại
 
-Lấy key miễn phí: https://aistudio.google.com/"""
+Lấy key miễn phí: [https://aistudio.google.com/](https://aistudio.google.com/)"""
 
     prompt = (_build_ticker_prompt(ticker, lang, context or "", stock_data or {})
               if mode == "ticker" else
@@ -200,20 +210,20 @@ Lấy key miễn phí: https://aistudio.google.com/"""
                         "- Key mới tạo nhưng **chưa cập nhật vào Streamlit Secrets**\n\n"
                         "**Cách fix:**\n"
                         "1. Vào app → **⋮** → **Settings** → **Secrets**\n"
-                        "2. Cập nhật `GOOGLE_API_KEY = \"key_mới\"`\n"
+                        "2. Cập nhật GOOGLE_API_KEY = \"key_mới\"\n"
                         "3. **Save** → đợi app reboot\n"
                         "4. Đợi thêm **1–2 phút** rồi nhấn 🔄 Thử lại\n\n"
                         "Flash miễn phí: 15 req/phút, 1,500 req/ngày\n"
-                        "Tạo key mới: https://aistudio.google.com/"
+                        "Tạo key mới: [https://aistudio.google.com/](https://aistudio.google.com/)"
                     )
 
                 if any(x in el for x in ["api_key", "invalid", "401", "403", "unauthorized"]):
                     return (
                         "🔑 **API Key không hợp lệ hoặc bị thu hồi**\n\n"
                         "**Cách fix:**\n"
-                        "1. Vào https://aistudio.google.com/ → tạo key mới\n"
+                        "1. Vào [https://aistudio.google.com/](https://aistudio.google.com/) → tạo key mới\n"
                         "2. Vào Streamlit → **⋮** → **Settings** → **Secrets**\n"
-                        "3. Cập nhật `GOOGLE_API_KEY = \"key_mới\"`\n"
+                        "3. Cập nhật GOOGLE_API_KEY = \"key_mới\"\n"
                         "4. **Save** → đợi app reboot"
                     )
 
@@ -230,5 +240,5 @@ Lấy key miễn phí: https://aistudio.google.com/"""
                 last_err = err
                 continue
 
-    return (f"⚠️ **Lỗi không xác định:**\n```\n{last_err[:300]}\n```\n\n"
+    return (f"⚠️ **Lỗi không xác định:**\n{last_err[:300]}\n\n"
             "Đợi 1–2 phút rồi nhấn 🔄 Thử lại.")
